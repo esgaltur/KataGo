@@ -1,0 +1,6 @@
+KATAGO_1 {
+  global:
+    katago_*;
+  local:
+    *;
+};

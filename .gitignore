@@ -34,6 +34,9 @@ cpp/data/
 versions/
 cpp/build
 cpp/out
+cpp/build_dll/
+cpp/build_linux_*/
+cpp/build_wsl_*/
 
 export_model_cuda.sh
 mixmodels.sh

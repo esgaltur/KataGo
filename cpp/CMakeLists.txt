@@ -50,13 +50,19 @@ set(USE_TCMALLOC 0 CACHE BOOL "Use TCMalloc")
 set(NO_GIT_REVISION 0 CACHE BOOL "Disable embedding the git revision into the compiled exe")
 set(USE_AVX2 0 CACHE BOOL "Compile with AVX2")
 set(USE_BIGGER_BOARDS_EXPENSIVE 0 CACHE BOOL "Allow boards up to size 50. Compiling with this will use more memory and slow down KataGo, even when playing on boards of size 19.")
+set(BUILD_AS_DLL 0 CACHE BOOL "Build KataGo as a shared library (DLL) with a C API instead of (or in addition to) the executable")
+set(BUILD_DLL_SMOKE 1 CACHE BOOL "Build the small C ABI smoke-test executable when BUILD_AS_DLL is enabled")
 
 set(USE_CACHE_TENSORRT_PLAN 0 CACHE BOOL "Use TENSORRT plan cache. May use a lot of disk space. Only applies when USE_BACKEND is TENSORRT.")
 mark_as_advanced(USE_CACHE_TENSORRT_PLAN)
 
 #--------------------------- NEURAL NET BACKEND ------------------------------------------------------------------------
 
-message(STATUS "Building 'katago' executable for GTP engine and other tools.")
+if(BUILD_AS_DLL)
+  message(STATUS "BUILD_AS_DLL=1: Will build KataGo as a shared library (DLL) with C API.")
+else()
+  message(STATUS "Building 'katago' executable for GTP engine and other tools.")
+endif()
 if(USE_BACKEND STREQUAL "CUDA")
   message(STATUS "-DUSE_BACKEND=CUDA, using CUDA backend.")
 
@@ -249,7 +255,7 @@ endif()
 
 #--------------------------- KATAGO COMPILING AND LINKING --------------------------------------------------------------
 
-add_executable(katago
+set(KATAGO_LIB_SOURCES
   core/global.cpp
   core/base64.cpp
   core/bsearch.cpp
@@ -367,8 +373,57 @@ add_executable(katago
   command/startposes.cpp
   command/tune.cpp
   command/writetrainingdata.cpp
-  main.cpp
   )
+
+if(BUILD_AS_DLL)
+  # Build as a shared library with an explicit C API. Do not enable
+  # CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS: katago_api.h marks the supported ABI and
+  # exporting every C++ implementation symbol makes the binary toolchain-bound.
+  add_library(katago SHARED
+    ${KATAGO_LIB_SOURCES}
+    ${GIT_HEADER_FILE_ALWAYS_UPDATED}
+    lib/katago_api.cpp
+    lib/katago_api.h
+    lib/katago_exports.map
+    lib/katago_engine.cpp
+    lib/katago_engine.h
+    lib/katago_gtp_handler.cpp
+    lib/katago_gtp_handler.h
+  )
+  target_compile_definitions(katago PRIVATE KATAGO_DLL_EXPORTS)
+  # ELF and Mach-O export C++ symbols by default, unlike the explicit
+  # __declspec(dllexport) boundary used on Windows. Hide every implementation
+  # symbol and let KATAGO_API's visibility("default") attribute expose only
+  # the supported flat C ABI.
+  if(NOT WIN32)
+    set_target_properties(katago PROPERTIES
+      C_VISIBILITY_PRESET hidden
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN YES
+    )
+  endif()
+  if(UNIX AND NOT APPLE)
+    target_link_options(katago PRIVATE
+      "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/lib/katago_exports.map"
+    )
+  endif()
+  # The library sources under lib/ include project headers relative to the source
+  # root (e.g. "core/...", "game/...") and each other; add both directories so
+  # those includes resolve after the move into lib/.
+  target_include_directories(katago PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+  if(BUILD_DLL_SMOKE)
+    add_executable(katago_dll_smoke lib/katago_api_smoke.cpp)
+    target_include_directories(katago_dll_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+    target_link_libraries(katago_dll_smoke PRIVATE katago)
+  endif()
+else()
+  # Traditional: build everything as a single executable
+  add_executable(katago
+    ${KATAGO_LIB_SOURCES}
+    ${GIT_HEADER_FILE_ALWAYS_UPDATED}
+    main.cpp
+  )
+endif()
 
 if(USE_BACKEND STREQUAL "CUDA")
   target_compile_definitions(katago PRIVATE USE_CUDA_BACKEND)
@@ -607,7 +662,9 @@ if (WIN32) # handles both x86 and x64
     endif()
 
     # Make the build independent of MinGW dynamic libraries
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+    if(NOT BUILD_AS_DLL)
+      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+    endif()
 
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
       # Strip symbols. It significantly reduces binary size (makes it 20x smaller)
