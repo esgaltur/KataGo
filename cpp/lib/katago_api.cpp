@@ -35,10 +35,10 @@
 #endif
 
 string Version::getKataGoVersion() {
-  return string("1.17.1");
+  return string("1.17.2");
 }
 string Version::getKataGoVersionForHelp() {
-  return string("KataGo v1.17.1");
+  return string("KataGo v1.17.2");
 }
 string Version::getKataGoVersionFullInfo() {
   ostringstream out;
@@ -187,7 +187,7 @@ KATAGO_API const char* KATAGO_CALL katago_gtp_command(KataGoEngine* engine, cons
 }
 
 KATAGO_API const char* KATAGO_CALL katago_version(void) {
-  return "1.17.1";
+  return "1.17.2";
 }
 
 KATAGO_API int KATAGO_CALL katago_api_version(void) {

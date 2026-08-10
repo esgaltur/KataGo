@@ -159,10 +159,10 @@ change of side to move; handicap via
 
 # Round 3 — ABI and embedding hardening
 
-This working tree is a patch set against upstream KataGo v1.17.1 commit
-`5246793f77b480dee91a3b92902d1a9b92860bd0`. Until the work is pushed to a
-fork, that base revision plus this repository diff is the reproducible source
-of the DLL consumed by GoGame.
+This patch set is rebased onto upstream KataGo v1.17.2 commit
+`6a1fc5de9fc253723ac475a0683bf0b9d9b7bd19` and maintained on the
+`feature/gogame-shared-library-api` branch of
+`https://github.com/esgaltur/KataGo`.
 
 ## Changes
 
@@ -197,6 +197,6 @@ of the DLL consumed by GoGame.
 
 ## Release prerequisite
 
-Create a maintained fork/branch and commit this patch set before treating the
-binary as releasable. Record the fork commit and DLL SHA-256 in GoGame's build
-metadata; do not rely on an uncommitted sibling checkout as the long-term source.
+Record the exact fork commit and native-library SHA-256 in GoGame's release
+metadata. A release binary must be reproducible from the maintained fork rather
+than from an uncommitted sibling checkout.
