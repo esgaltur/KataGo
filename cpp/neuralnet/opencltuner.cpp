@@ -7,6 +7,7 @@
 #include "../core/fileutils.h"
 #include "../core/rand.h"
 #include "../core/makedir.h"
+#include "../core/timer.h"
 #include "../core/threadsafecounter.h"
 #include "../dataio/homedata.h"
 
@@ -1016,7 +1017,15 @@ struct OpenCLTuneAccums {
   double weightCounted = 0;
   double weightedTimeTaken = 0;
 
-  void countResultAndFreeEvent(cl_int err, cl_event event, double weight) {
+  static int64_t startHostTimer(cl_command_queue commandQueue) {
+    // Event timestamps exclude earlier queued work. Match that behavior for
+    // the host-clock fallback by draining the in-order queue before timing.
+    cl_int err = clFinish(commandQueue);
+    CHECK_ERR(err);
+    return ClockTimer::getPrecisionSystemTime();
+  }
+
+  void countResultAndFreeEvent(cl_int err, cl_event event, double weight, int64_t hostStartTime) {
     if(err != 0) {
       if(!bad) {
         bad = true;
@@ -1035,11 +1044,20 @@ struct OpenCLTuneAccums {
       return;
     }
 
+    const int64_t hostEndTime = ClockTimer::getPrecisionSystemTime();
     cl_ulong time_start, time_end;
-    err = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL); CHECK_ERR(err);
-    err = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL); CHECK_ERR(err);
-
-    weightedTimeTaken += (time_end - time_start) * 1e-9 * weight;
+    cl_int startErr = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+    cl_int endErr = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+    if(startErr == CL_SUCCESS && endErr == CL_SUCCESS)
+      weightedTimeTaken += (time_end - time_start) * 1e-9 * weight;
+    // A non-profiling fallback queue cannot supply event timestamps. Keep the
+    // existing correctness checks and scoring, substituting only the clock.
+    else if(startErr == CL_PROFILING_INFO_NOT_AVAILABLE && endErr == CL_PROFILING_INFO_NOT_AVAILABLE)
+      weightedTimeTaken += (hostEndTime - hostStartTime) * 1e-9 * weight;
+    else {
+      CHECK_ERR(startErr);
+      CHECK_ERR(endErr);
+    }
     weightCounted += weight;
 
     clReleaseEvent(event);
@@ -1541,6 +1559,7 @@ static void tuneXGemmDirect(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doStridedBatchedXGemmDirect_KM_KN_NM(
         kernel,
         commandQueue,
@@ -1553,7 +1572,7 @@ static void tuneXGemmDirect(
       );
 
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break; // Kill the loop and return what we have, if things are bad doesn't matter if ret is shorter.
 
@@ -1780,6 +1799,7 @@ static bool tuneXGemm(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doBatchedXGemm_KM_KN_NM(
         kernel,
         commandQueue,
@@ -1790,7 +1810,7 @@ static bool tuneXGemm(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break; // Kill the loop and return what we have, if things are bad doesn't matter if ret is shorter.
 
@@ -2002,6 +2022,7 @@ static bool tuneXGemm16(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doBatchedXGemm_KM_KN_NM(
         kernel,
         commandQueue,
@@ -2012,7 +2033,7 @@ static bool tuneXGemm16(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break; // Kill the loop and return what we have, if things are bad doesn't matter if ret is shorter.
 
@@ -2211,6 +2232,7 @@ static bool tuneHGemmWmma(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doBatchedHGemmWmma_KM_KN_NM(
         kernel,
         commandQueue,
@@ -2221,7 +2243,7 @@ static bool tuneHGemmWmma(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break; // Kill the loop and return what we have, if things are bad doesn't matter if ret is shorter.
 
@@ -2407,6 +2429,7 @@ static bool tuneHGemmWmmaNCHW(
 
       // WMMA matmul on pre-padded input (no separate pad step needed)
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doHGemmWmma_NCHW_ICOC(
         kernel,
         commandQueue,
@@ -2416,7 +2439,7 @@ static bool tuneHGemmWmmaNCHW(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break; // Kill the loop and return what we have, if things are bad doesn't matter if ret is shorter.
 
@@ -2593,6 +2616,7 @@ static void tuneTransform(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doWinogradTransform(
         kernel,
         commandQueue,
@@ -2605,7 +2629,7 @@ static void tuneTransform(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break;
 
@@ -2777,6 +2801,7 @@ static void tuneUntransform(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = doWinogradUntransform(
         kernel,
         commandQueue,
@@ -2789,7 +2814,7 @@ static void tuneUntransform(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break;
 
@@ -2963,6 +2988,7 @@ static void tuneGPool(
       }
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = performGPoolMask(
         kernel,
         commandQueue,
@@ -2972,7 +2998,7 @@ static void tuneGPool(
         &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break;
 
@@ -3198,6 +3224,7 @@ static void tuneTransformerAttention(
       clSetKernelArg(kernel, 8, sizeof(float), (void*)&scale);
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       if(cfg.transformer.USE_TILED_ATTN) {
         int blockQ = cfg.transformer.ATTN_BLOCK_Q;
         int qPerThread = cfg.transformer.Q_PER_THREAD;
@@ -3217,7 +3244,7 @@ static void tuneTransformerAttention(
         err = clEnqueueNDRangeKernel(commandQueue, kernel, 2, NULL, globalSizes, NULL, 0, NULL, &event);
       }
 
-      accums.countResultAndFreeEvent(err, event, weight);
+      accums.countResultAndFreeEvent(err, event, weight, hostStartTime);
       if(accums.bad)
         break;
 
@@ -3459,16 +3486,18 @@ static void tunePointWise(
       // Run addPointWise
       {
         cl_event event;
+        int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
         err = doAddPointWise(addKernel, commandQueue, cfg, accum, value, addTotalSize, &event);
-        accums.countResultAndFreeEvent(err, event, weight);
+        accums.countResultAndFreeEvent(err, event, weight, hostStartTime);
         if(accums.bad) break;
       }
 
       // Run swiGLU (if applicable)
       if(hasSwiGLU) {
         cl_event event;
+        int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
         err = doSwiGLU(swigluKernel, commandQueue, cfg, swigluMain, swigluGate, swigluOutput, swigluTotalSize, &event);
-        accums.countResultAndFreeEvent(err, event, weight);
+        accums.countResultAndFreeEvent(err, event, weight, hostStartTime);
         if(accums.bad) break;
       }
 
@@ -3674,11 +3703,12 @@ static void tuneAddChannelBiasesNCHW(
       clSetKernelArg(kernel, 3, sizeof(int), (const void *)&nnXYLen);
 
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = clEnqueueNDRangeKernel(
         commandQueue, kernel, nKernelDims, NULL, globalSizes, localSizes, 0, NULL, &event
       );
 
-      accums.countResultAndFreeEvent(err,event,weight);
+      accums.countResultAndFreeEvent(err,event,weight,hostStartTime);
       if(accums.bad)
         break;
 
@@ -3894,9 +3924,10 @@ static void tuneTransformerRMSNorm(
       size_t globalSizes[2] = {(size_t)(wgCSize * wgXYSize) * (size_t)numXYGroups, (size_t)batchSize};
       size_t localSizes[2] = {(size_t)(wgCSize * wgXYSize), 1};
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       err = clEnqueueNDRangeKernel(commandQueue, kernel, 2, NULL, globalSizes, localSizes, 0, NULL, &event);
 
-      accums.countResultAndFreeEvent(err, event, weight2);
+      accums.countResultAndFreeEvent(err, event, weight2, hostStartTime);
       if(accums.bad)
         break;
 
@@ -4145,6 +4176,7 @@ static void tuneSpatialRMSNorm(
 
       // Kernel 3: Apply
       cl_event event;
+      int64_t hostStartTime = OpenCLTuneAccums::startHostTimer(commandQueue);
       float tunerEpsilon = 1e-6f;
       err = OpenCLHelpers::doSpatialRMSNormApply(
         applyKernel, commandQueue,
@@ -4155,7 +4187,7 @@ static void tuneSpatialRMSNorm(
         mask, maskSum, finalSumBuf, &event
       );
 
-      accums.countResultAndFreeEvent(err, event, weight);
+      accums.countResultAndFreeEvent(err, event, weight, hostStartTime);
       if(accums.bad)
         break;
 

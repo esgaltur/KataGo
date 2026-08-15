@@ -200,3 +200,72 @@ This patch set is rebased onto upstream KataGo v1.17.2 commit
 Record the exact fork commit and native-library SHA-256 in GoGame's release
 metadata. A release binary must be reproducible from the maintained fork rather
 than from an uncommitted sibling checkout.
+
+---
+
+# Round 4 — OpenCL tuning without device profiling
+
+## Problem
+
+Mesa Rusticl on the Raspberry Pi 5 V3D device exposes working OpenCL compute
+queues but rejects `CL_QUEUE_PROFILING_ENABLE` with
+`CL_INVALID_QUEUE_PROPERTIES`. KataGo previously treated this as a fatal error
+before the tuner could validate or select any kernels. Merely switching to
+`clCreateCommandQueueWithProperties` does not help: the same driver rejects the
+same property through both APIs.
+
+## Design
+
+- `cpp/neuralnet/openclhelpers.cpp` first requests the original profiling
+  queue. Only `CL_INVALID_QUEUE_PROPERTIES`/`CL_INVALID_VALUE` trigger a retry
+  with an ordinary in-order queue and a visible warning.
+- `cpp/neuralnet/opencltuner.cpp` records a monotonic host timestamp immediately
+  before each measured enqueue. It first drains the queue so the host interval
+  has the same work boundary as OpenCL event timestamps.
+- After the event completes, device timestamps remain authoritative when they
+  are available. When both timestamp queries return
+  `CL_PROFILING_INFO_NOT_AVAILABLE`, elapsed host time is substituted.
+- Unexpected profiling errors, enqueue errors, execution errors, and failed
+  output/reference comparisons retain their original failure behavior.
+- The tune-file version and format, candidate space, correctness tolerances,
+  FP16 capability probing, and normal inference path do not change. This is not
+  a C ABI change; `KATAGO_API_VERSION` remains 1 and the export list remains 19.
+
+## Rejected alternatives
+
+- **Use the modern queue constructor:** V3D returned `-35` for both legacy and
+  modern profiling constructors.
+- **Always use built-in defaults:** a diagnostic proved inference could run,
+  but it bypassed KataGo's correctness comparisons and was therefore removed.
+- **Pretend tuning succeeded from a foreign tuning file:** tuning data is
+  device/model/board/tuner-version specific and must not be copied blindly.
+- **Disable OpenCL errors globally:** this would hide real driver or kernel
+  failures and corrupt the tuner's selection contract.
+
+## Verification record — 2026-08-15
+
+Raspberry Pi 5, Ubuntu 26.04, AArch64, kernel `7.0.0-1009-raspi`, Mesa/Rusticl
+26.0.3, V3D 7.1.7.0, GoGame `b18c384` model:
+
+- unmodified ARM64 OpenCL library compiled and exported the exact 19-function
+  ABI, then failed its real smoke at profiling queue creation;
+- a three-case OpenCL probe returned `0` for a normal queue and `-35` for both
+  profiling constructors;
+- a temporary conservative-default diagnostic passed the real smoke twice and
+  was then removed;
+- the host-clock fallback built, tested 55 xGemmDirect, 69 xGemm, 45 transform,
+  109 untransform, 104 pooling, 120 attention, 68 transformer RMSNorm, 20
+  pointwise, 12 channel-bias, and 25 spatial RMSNorm configurations, while
+  rejecting unsupported FP16 modes;
+- the tuner saved version-13 parameters and the full C ABI/model smoke passed
+  in 33:05.54 with 719,216 KiB peak RSS and no swap;
+- the saved-tune warm smoke passed in 2:05.16 with 280,264 KiB peak RSS;
+- the final OpenCL library remained AArch64 with exactly 19 exports;
+- the Eigen ARM64 comparison passed in 1.29 seconds with 192,764 KiB peak RSS;
+- Windows `build_dll.bat OPENCL` built all 125 steps, and the RTX 3070 real
+  smoke loaded its existing device-timestamp tuning file and passed API 1.
+
+The fallback is therefore compatible, but V3D OpenCL is not a performance win
+for this model. Persist `~/.katago/opencltuning` across runtime recreation and
+benchmark the warm path before choosing this backend. Generated tuning files
+must remain machine-local.

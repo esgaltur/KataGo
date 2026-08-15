@@ -90,6 +90,81 @@ KATAGO_DEP_PREFIX=/path/to/prefix/usr \
 The helper fails unless the resulting ELF library exports exactly the 19
 documented `katago_*` C functions and no C++ implementation symbols.
 
+### ARM64 and OpenCL implementations without profiling queues
+
+An ARM64 shared library must be built with ARM64 dependencies; the normal WSL
+helper is a host-native x86-64 build and its output cannot run on an ARM host.
+The verified native form is:
+
+```bash
+cmake -S cpp -B cpp/build_pi_opencl -G Ninja \
+  -DBUILD_AS_DLL=1 -DBUILD_DLL_SMOKE=1 -DNO_GIT_REVISION=1 \
+  -DUSE_BACKEND=OPENCL -DUSE_AVX2=0 -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build_pi_opencl --parallel 2
+```
+
+Some OpenCL implementations expose a functional compute device but reject
+`CL_QUEUE_PROFILING_ENABLE` with `CL_INVALID_QUEUE_PROPERTIES`. KataGo's OpenCL
+autotuner normally uses device event timestamps. When profiling queue creation
+fails for that reason, this branch retries with a normal in-order queue and the
+tuner measures each drained kernel with KataGo's monotonic host clock. Kernel
+output is still compared through the existing tuner correctness checks; only
+the timing source changes. Drivers that support profiling retain the original
+event-timestamp path.
+
+On Mesa Rusticl, a Gallium device may need to be enabled explicitly. For a
+Raspberry Pi 5 V3D device, for example:
+
+```bash
+RUSTICL_ENABLE=v3d \
+  cpp/build_pi_opencl/katago_dll_smoke model.bin.gz analysis.cfg
+```
+
+The first successful run writes device/model-specific parameters under
+`~/.katago/opencltuning/`. Preserve that directory across container recreation,
+or configure a persistent `openclTunerFile`; otherwise KataGo must tune again.
+Retune when the model shape, relevant board-size tuning policy, driver behavior,
+or tuner version changes. A successful tune and smoke establish compatibility,
+not performance: benchmark the saved-tune warm path against Eigen on the target
+before selecting OpenCL for deployment.
+
+#### Verified Raspberry Pi 5 behavior
+
+The fallback was validated on 2026-08-15 with Ubuntu 26.04, kernel
+`7.0.0-1009-raspi`, Mesa/Rusticl 26.0.3, V3D 7.1.7.0, and the GoGame
+`b18c384` model. `clinfo` advertised profiling but reported a `0ns` timer
+resolution; both legacy and modern profiling queue constructors returned
+`CL_INVALID_QUEUE_PROPERTIES`, while a normal queue succeeded.
+
+| Check | Result |
+| --- | --- |
+| Unmodified tuner | Failed while creating the profiling queue |
+| Conservative-parameter diagnostic | Real C ABI/model smoke passed twice |
+| Host-clock tuner | Tested all normal non-full candidate groups, retained FP32, saved a version-13 file, and passed the smoke |
+| First tune plus smoke | 33:05.54 wall time; 719,216 KiB peak RSS; no swap |
+| Saved-tune warm smoke | 2:05.16 wall time; 280,264 KiB peak RSS; no swap |
+| Eigen comparison | 1.29 seconds wall time; 192,764 KiB peak RSS |
+| ABI/export check | AArch64 ELF; exactly 19 `katago_*@@KATAGO_1` exports |
+
+The saved V3D configuration selected the conservative/reference-sized FP32
+parameters; all FP16 modes were rejected. This proves compatibility, but V3D
+OpenCL was about 97 times slower than Eigen for this smoke. Eigen therefore
+remains the practical Raspberry Pi backend for this model. Do not commit the
+generated tuning file: it is specific to the device, model shape, board size,
+and tuner version.
+
+#### Fallback invariants
+
+- Retry without profiling only after the profiling queue is rejected; do not
+  hide context, device, allocation, enqueue, or kernel execution errors.
+- Drain the in-order queue before starting the host clock so a host interval
+  covers the same kernel work as event start/end timestamps.
+- Use host time only when both event timestamp queries report
+  `CL_PROFILING_INFO_NOT_AVAILABLE`; all other unexpected errors still fail.
+- Keep the original output/reference comparisons, error tolerances, candidate
+  selection, and tune-file format unchanged.
+- Continue using device timestamps on normal profiling-capable OpenCL drivers.
+
 ### Linking against the library
 
 1. Copy `katago.dll` next to your executable (and any backend runtime DLLs, e.g. `zlib1.dll`).

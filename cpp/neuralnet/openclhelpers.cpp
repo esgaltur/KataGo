@@ -566,8 +566,22 @@ DevicesContext::DevicesContext(const vector<DeviceInfo>& allDeviceInfos, const v
     //TODO - someday, maybe consider CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE
     cl_int err;
     cl_command_queue commandQueue;
-    if(enableProfiling)
+    if(enableProfiling) {
       commandQueue = clCreateCommandQueue(context, deviceId, CL_QUEUE_PROFILING_ENABLE, &err);
+      // Some OpenCL implementations expose a usable compute device but reject
+      // profiling queues. The tuner can measure these devices with its host
+      // clock, so retry without profiling rather than rejecting the device.
+      if(err == CL_INVALID_QUEUE_PROPERTIES || err == CL_INVALID_VALUE) {
+        string warning =
+          "WARNING: OpenCL device rejected a profiling-enabled command queue; "
+          "falling back to host-clock timing for tuning";
+        if(logger != NULL)
+          logger->write(warning);
+        if(logger == NULL || (!logger->isLoggingToStdout() && !logger->isLoggingToStderr()))
+          cerr << warning << endl;
+        commandQueue = clCreateCommandQueue(context, deviceId, 0, &err);
+      }
+    }
     else
       commandQueue = clCreateCommandQueue(context, deviceId, 0, &err);
 

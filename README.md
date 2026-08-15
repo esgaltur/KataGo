@@ -182,6 +182,11 @@ If you are observing any crashes in KataGo while attempting to run the benchmark
 * **OpenCL Mesa** - These drivers for OpenCL are buggy. Particularly if on startup before crashing you see KataGo printing something like
 `Found OpenCL Platform 0: ... (Mesa) (OpenCL 1.1 Mesa ...) ...`
 then you are using the Mesa drivers. You will need to change your drivers, see for example this [KataGo issue](https://github.com/lightvector/KataGo/issues/182#issuecomment-607943405) which links to [this thread](https://bbs.archlinux.org/viewtopic.php?pid=1895516#p1895516).
+  * This shared-library fork can fall back to host-clock tuner measurements when
+    a Mesa/Rusticl device supports compute but rejects profiling queues. This
+    addresses only missing event profiling; it does not hide kernel failures or
+    guarantee useful speed. See [`cpp/lib/README.md`](cpp/lib/README.md#arm64-and-opencl-implementations-without-profiling-queues)
+    for the design and Raspberry Pi 5 verification record.
 * **Intel Integrated Graphics** - For weaker/older machines or laptops or devices that don't have a dedicated GPU, KataGo might end up using the weak "Intel Integrated Graphics" that is built in with the CPU. Often this will work fine (although KataGo will be slow and only get a tiny number of playouts compared to using a real GPU), but various versions of Intel Integrated Graphics can also be buggy and not work at all. If a driver update doesn't work for you, then the only solution is to upgrade to a better GPU. See for example this [issue](https://github.com/lightvector/KataGo/issues/54) or this [issue](https://github.com/lightvector/KataGo/issues/78), or this [other Github's issue](https://github.com/CNugteren/CLBlast/issues/280).
 
 #### Common Problems
