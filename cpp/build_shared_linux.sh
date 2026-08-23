@@ -9,6 +9,7 @@
 #   KATAGO_BUILD_JOBS      parallel jobs (default: nproc)
 #   KATAGO_DEP_PREFIX      unpacked dependency prefix ending in /usr
 #   KATAGO_OPENCL_LIBRARY  explicit libOpenCL.so path
+#   KATAGO_USE_AVX2        1 or 0 (default: 1 on x86-64, 0 elsewhere)
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,6 +28,20 @@ backend_lower="${backend,,}"
 build_dir="${KATAGO_BUILD_DIR:-${script_dir}/build_linux_${backend_lower}}"
 jobs="${KATAGO_BUILD_JOBS:-$(nproc)}"
 
+if [[ -n "${KATAGO_USE_AVX2:-}" ]]; then
+  use_avx2="${KATAGO_USE_AVX2}"
+else
+  case "$(uname -m)" in
+    x86_64|amd64) use_avx2=1 ;;
+    *) use_avx2=0 ;;
+  esac
+fi
+
+if [[ "${use_avx2}" != "0" && "${use_avx2}" != "1" ]]; then
+  echo "KATAGO_USE_AVX2 must be 0 or 1, got '${use_avx2}'." >&2
+  exit 2
+fi
+
 cmake_args=(
   -S "${script_dir}"
   -B "${build_dir}"
@@ -34,7 +49,7 @@ cmake_args=(
   -DBUILD_DLL_SMOKE=1
   -DNO_GIT_REVISION=1
   -DUSE_BACKEND="${backend}"
-  -DUSE_AVX2=1
+  -DUSE_AVX2="${use_avx2}"
   -DCMAKE_BUILD_TYPE=Release
 )
 
