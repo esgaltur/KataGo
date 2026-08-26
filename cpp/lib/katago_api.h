@@ -25,6 +25,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 /* ---------- Export/import & calling convention macros ---------- */
 #ifdef _WIN32
   #ifdef KATAGO_DLL_EXPORTS

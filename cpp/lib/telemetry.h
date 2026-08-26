@@ -4,7 +4,13 @@
 #include <chrono>
 #include "katago_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern KataGoTelemetryCallback g_telemetry_callback;
+#ifdef __cplusplus
+}
+#endif
 
 struct TraceSpan {
   const char* name;
