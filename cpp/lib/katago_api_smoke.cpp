@@ -68,12 +68,18 @@ int main(int argc, char** argv) {
     "{\"id\":\"smoke\",\"rules\":\"chinese\",\"komi\":7.5,"
     "\"boardXSize\":9,\"boardYSize\":9,\"initialPlayer\":\"B\","
     "\"moves\":[],\"maxVisits\":1,\"includeOwnership\":false,"
-    "\"includePolicy\":false}";
+    "\"includePolicy\":false,\"adaptiveSearch\":true}";
 
   bool first = false;
   bool second = false;
-  std::thread t1([&]{ first = responseSucceeded(katago_query_json(engine, query.c_str()), "query 1"); });
-  std::thread t2([&]{ second = responseSucceeded(katago_query_json(engine, query.c_str()), "query 2"); });
+  std::thread t1([&]{
+    const char* response = katago_query_json(engine, query.c_str());
+    first = responseSucceeded(response, "query 1");
+  });
+  std::thread t2([&]{
+    const char* response = katago_query_json(engine, query.c_str());
+    second = responseSucceeded(response, "query 2");
+  });
   t1.join();
   t2.join();
   ok = ok && first && second;

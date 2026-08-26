@@ -320,13 +320,20 @@ int MainCmds::analysis(const vector<string>& args) {
     ret["turnNumber"] = request->turnNumber;
     ret["isDuringSearch"] = isDuringSearch;
 
+    Search::AnalysisJsonOptions options;
+    options.setAnalysisPVLen(request->analysisPVLen)
+           .setPreventEncore(preventEncore)
+           .setIncludePolicy(request->includePolicy)
+           .setIncludeOwnership(request->includeOwnership)
+           .setIncludeOwnershipStdev(request->includeOwnershipStdev)
+           .setIncludeMovesOwnership(request->includeMovesOwnership)
+           .setIncludeMovesOwnershipStdev(request->includeMovesOwnershipStdev)
+           .setIncludePVVisits(request->includePVVisits)
+           .setIncludeNoResultValue(request->includeNoResultValue);
+
     bool success = search->getAnalysisJson(
       request->perspective,
-      request->analysisPVLen, preventEncore, request->includePolicy,
-      request->includeOwnership,request->includeOwnershipStdev,
-      request->includeMovesOwnership,request->includeMovesOwnershipStdev,
-      request->includePVVisits,
-      request->includeNoResultValue,
+      options,
       ret
     );
 

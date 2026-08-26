@@ -17,6 +17,7 @@
 #include "../search/searchnode.h"
 #include "../search/searchnodetable.h"
 #include "../search/subtreevaluebiastable.h"
+#include "../lib/telemetry.h"
 
 using namespace std;
 
@@ -477,7 +478,7 @@ void Search::runWholeSearch(
   const TimeControls& tc,
   double searchFactor
 ) {
-
+  TRACE_SPAN("Search::runWholeSearch");
   ClockTimer timer;
   atomic<int64_t> numPlayoutsShared(0);
   std::atomic<bool> shouldStopNow(false);
@@ -620,7 +621,57 @@ void Search::runWholeSearch(
   };
 
   double actualSearchStartTime = timer.getSeconds();
-  performTaskWithThreads(&searchLoop, capThreads);
+  
+  int64_t initialMaxVisits = maxVisits;
+  int64_t initialMaxPlayouts = maxPlayouts;
+
+  while(true) {
+    TRACE_SPAN("Search::adaptiveSearchLoop");
+    performTaskWithThreads(&searchLoop, capThreads);
+
+    if(!searchParams.adaptiveSearch) break;
+    if(shouldStopEarly != nullptr && (*shouldStopEarly)()) break;
+    if(shouldStopNow.load(std::memory_order_relaxed)) break;
+    
+    int64_t numPlayouts = numPlayoutsShared.load(std::memory_order_relaxed);
+    if(numPlayouts + numNonPlayoutVisits < maxVisits && numPlayouts < maxPlayouts) {
+      break; // Stopped by time or other early stop, not visits cap
+    }
+    
+    if(maxVisits >= initialMaxVisits * searchParams.adaptiveMaxMultiplier) break;
+
+    std::vector<AnalysisData> buf;
+    getAnalysisData(buf, 2, false, 0, false);
+    if(buf.size() < 2) break;
+
+    const auto& first = buf[0];
+    const auto& second = buf[1];
+    const int64_t firstVisits = first.numVisits;
+    const int64_t secondVisits = second.numVisits;
+    
+    const double firstUtility = first.lcb;
+    const double secondUtility = second.lcb;
+
+    const bool closeVisitSplit = firstVisits + secondVisits > 0 &&
+      static_cast<double>(secondVisits) / static_cast<double>(firstVisits + secondVisits) >= searchParams.adaptiveVisitRatio;
+    
+    const bool closeUtility = std::abs(firstUtility - secondUtility) < searchParams.adaptiveUtilityTolerance;
+    
+    if(firstVisits > 1 && (!closeVisitSplit || !closeUtility)) {
+      break; // Position is no longer ambiguous
+    }
+
+    // Bump visits by step multiplier, bounded by max multiplier
+    maxVisits = std::min<int64_t>(
+      maxVisits + std::max<int64_t>(1, initialMaxVisits * searchParams.adaptiveStepMultiplier),
+      initialMaxVisits * searchParams.adaptiveMaxMultiplier
+    );
+    // Scale maxPlayouts relative to initialMaxPlayouts similarly
+    maxPlayouts = std::min<int64_t>(
+      maxPlayouts + std::max<int64_t>(1, initialMaxPlayouts * searchParams.adaptiveStepMultiplier),
+      initialMaxPlayouts * searchParams.adaptiveMaxMultiplier
+    );
+  }
 
   //If the search did not actually do anything, we need to still make sure to update the root node if it needs
   //such an update (since root params may differ from tree params).

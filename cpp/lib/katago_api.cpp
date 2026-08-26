@@ -273,4 +273,10 @@ KATAGO_API void KATAGO_CALL katago_free_string(const char* str) {
   delete[] str;
 }
 
+KataGoTelemetryCallback g_telemetry_callback = nullptr;
+
+KATAGO_API void KATAGO_CALL katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback) {
+  g_telemetry_callback = callback;
+}
+
 } // extern "C"

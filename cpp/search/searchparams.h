@@ -131,6 +131,13 @@ struct SearchParams {
   int64_t maxPlayouts; //Max number of playouts from the root to think for, not counting earlier playouts from tree reuse
   double maxTime; //Max number of seconds to think for
 
+  //Adaptive Search Parameters
+  bool adaptiveSearch; 
+  double adaptiveVisitRatio;
+  double adaptiveUtilityTolerance;
+  double adaptiveMaxMultiplier;
+  double adaptiveStepMultiplier;
+
   //Same caps but when pondering
   int64_t maxVisitsPondering;
   int64_t maxPlayoutsPondering;

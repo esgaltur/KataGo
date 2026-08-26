@@ -1993,15 +1993,7 @@ std::pair<std::vector<double>,std::vector<double>> Search::getAverageAndStandard
 
 bool Search::getAnalysisJson(
   const Player perspective,
-  int analysisPVLen,
-  bool preventEncore,
-  bool includePolicy,
-  bool includeOwnership,
-  bool includeOwnershipStdev,
-  bool includeMovesOwnership,
-  bool includeMovesOwnershipStdev,
-  bool includePVVisits,
-  bool includeNoResultValue,
+  const AnalysisJsonOptions& options,
   json& ret
 ) const {
   vector<AnalysisData> buf;
@@ -2011,7 +2003,7 @@ bool Search::getAnalysisJson(
   const Board& board = rootBoard;
   const BoardHistory& hist = rootHistory;
   bool duplicateForSymmetries = true;
-  getAnalysisData(buf, minMoves, false, analysisPVLen, duplicateForSymmetries);
+  getAnalysisData(buf, minMoves, false, options.analysisPVLen, duplicateForSymmetries);
 
   const NNOutput* nnOutput = NULL;
   const NNOutput* humanOutput = NULL;
@@ -2051,7 +2043,7 @@ bool Search::getAnalysisJson(
     moveInfo["scoreSelfplay"] = Global::roundDynamic(scoreMean,OUTPUT_PRECISION);
     moveInfo["scoreLead"] = Global::roundDynamic(lead,OUTPUT_PRECISION);
     moveInfo["scoreStdev"] = Global::roundDynamic(data.scoreStdev,OUTPUT_PRECISION);
-    if(includeNoResultValue)
+    if(options.includeNoResultValue)
       moveInfo["noResultValue"] = Global::roundDynamic(data.noResultValue,OUTPUT_PRECISION);
     moveInfo["prior"] = Global::roundDynamic(data.policyPrior,OUTPUT_PRECISION);
     if(humanOutput != NULL)
@@ -2067,12 +2059,12 @@ bool Search::getAnalysisJson(
 
     json pv = json::array();
     int pvLen =
-      (preventEncore && data.pvContainsPass()) ? data.getPVLenUpToPhaseEnd(board, hist, rootPla) : (int)data.pv.size();
+      (options.preventEncore && data.pvContainsPass()) ? data.getPVLenUpToPhaseEnd(board, hist, rootPla) : (int)data.pv.size();
     for(int j = 0; j < pvLen; j++)
       pv.push_back(Location::toString(data.pv[j], board));
     moveInfo["pv"] = pv;
 
-    if(includePVVisits) {
+    if(options.includePVVisits) {
       testAssert(data.pvVisits.size() >= pvLen);
       json pvVisits = json::array();
       for(int j = 0; j < pvLen; j++)
@@ -2086,16 +2078,16 @@ bool Search::getAnalysisJson(
       moveInfo["pvEdgeVisits"] = pvEdgeVisits;
     }
 
-    if(includeMovesOwnership && includeMovesOwnershipStdev) {
+    if(options.includeMovesOwnership && options.includeMovesOwnershipStdev) {
       std::pair<std::vector<double>,std::vector<double>> ownershipAndStdev = getAverageAndStandardDeviationTreeOwnership(perspective, data.node, data.symmetry);
       moveInfo["ownership"] = json(ownershipAndStdev.first);
       moveInfo["ownershipStdev"] = json(ownershipAndStdev.second);
     }
-    else if(includeMovesOwnershipStdev) {
+    else if(options.includeMovesOwnershipStdev) {
       std::pair<std::vector<double>,std::vector<double>> ownershipAndStdev = getAverageAndStandardDeviationTreeOwnership(perspective, data.node, data.symmetry);
       moveInfo["ownershipStdev"] = json(ownershipAndStdev.second);
     }
-    else if(includeMovesOwnership) {
+    else if(options.includeMovesOwnership) {
       moveInfo["ownership"] = json(getAverageTreeOwnership(perspective, data.node, data.symmetry));
     }
 
@@ -2167,7 +2159,7 @@ bool Search::getAnalysisJson(
   }
 
   // Raw policy prior
-  if(includePolicy) {
+  if(options.includePolicy) {
     {
       float policyProbs[NNPos::MAX_NN_POLICY_SIZE];
       bool suc = getPolicy(policyProbs);
@@ -2202,18 +2194,18 @@ bool Search::getAnalysisJson(
   }
 
   // Average tree ownership
-  if(includeOwnership && includeOwnershipStdev) {
+  if(options.includeOwnership && options.includeOwnershipStdev) {
     int symmetry = 0;
     std::pair<std::vector<double>,std::vector<double>> ownershipAndStdev = getAverageAndStandardDeviationTreeOwnership(perspective, rootNode, symmetry);
     ret["ownership"] = json(ownershipAndStdev.first);
     ret["ownershipStdev"] = json(ownershipAndStdev.second);
   }
-  else if(includeOwnershipStdev) {
+  else if(options.includeOwnershipStdev) {
     int symmetry = 0;
     std::pair<std::vector<double>,std::vector<double>> ownershipAndStdev = getAverageAndStandardDeviationTreeOwnership(perspective, rootNode, symmetry);
     ret["ownershipStdev"] = json(ownershipAndStdev.second);
   }
-  else if(includeOwnership) {
+  else if(options.includeOwnership) {
     int symmetry = 0;
     ret["ownership"] = json(getAverageTreeOwnership(perspective, rootNode, symmetry));
   }

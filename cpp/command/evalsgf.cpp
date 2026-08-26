@@ -640,27 +640,20 @@ int MainCmds::evalsgf(const vector<string>& args) {
     }
 
     if(printJson) {
-      int analysisPVLen = 7;
-      bool preventEncore = false;
-      bool includePolicy = printPolicy;
-      bool includeOwnership = printOwnership;
-      bool includeOwnershipStdev = false;
-      bool includeMovesOwnership = false;
-      bool includeMovesOwnershipStdev = false;
-      bool includePVVisits = true;
+      Search::AnalysisJsonOptions options;
+      options.analysisPVLen = 7;
+      options.preventEncore = false;
+      options.includePolicy = printPolicy;
+      options.includeOwnership = printOwnership;
+      options.includeOwnershipStdev = false;
+      options.includeMovesOwnership = false;
+      options.includeMovesOwnershipStdev = false;
+      options.includePVVisits = true;
+      options.includeNoResultValue = false;
       nlohmann::json ret;
-      bool includeNoResultValue = false;
       bool suc = search->getAnalysisJson(
         perspective,
-        analysisPVLen,
-        preventEncore,
-        includePolicy,
-        includeOwnership,
-        includeOwnershipStdev,
-        includeMovesOwnership,
-        includeMovesOwnershipStdev,
-        includePVVisits,
-        includeNoResultValue,
+        options,
         ret
       );
       if(suc) {

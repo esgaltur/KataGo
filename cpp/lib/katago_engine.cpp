@@ -14,6 +14,8 @@
 
 #include "core/using.h"
 
+#include "telemetry.h"
+
 namespace {
 
 // Directory part of a path, or "" if it has none.
@@ -25,17 +27,15 @@ std::string directoryOf(const std::string& path) {
 std::string formatAnalysisJson(Search* search, Player perspective) {
   if(!search) return "{\"error\": \"null search\"}";
   nlohmann::json analysisJson;
+  Search::AnalysisJsonOptions options;
+  options.analysisPVLen = 15;
+  options.preventEncore = false;
+  options.includePolicy = true;
+  options.includeOwnership = true;
+  
   bool suc = search->getAnalysisJson(
     perspective,
-    15,    // analysisPVLen
-    false, // preventEncore
-    true,  // includePolicy
-    true,  // includeOwnership
-    false, // includeOwnershipStdev
-    false, // includeMovesOwnership
-    false, // includeMovesOwnershipStdev
-    false, // includePVVisits
-    false, // includeNoResultValue
+    options,
     analysisJson
   );
   if(suc) {
@@ -337,6 +337,7 @@ bool KataGoEngine::undoMove() {
 // --- Search ---
 
 std::string KataGoEngine::generateMove(Player pla) {
+  TRACE_SPAN("generateMove");
   std::lock_guard<std::mutex> lock(mutex_);
   syncBotPosition();
   Loc moveLoc = bot_->genMoveSynchronous(pla, TimeControls());
@@ -354,6 +355,7 @@ std::string KataGoEngine::generateMove(Player pla) {
 }
 
 std::string KataGoEngine::analyze() {
+  TRACE_SPAN("analyze");
   std::lock_guard<std::mutex> lock(mutex_);
   syncBotPosition();
   bot_->genMoveSynchronous(nextPlayer_, TimeControls());
@@ -365,6 +367,7 @@ std::string KataGoEngine::analyze() {
 }
 
 std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
+  TRACE_SPAN("queryJson");
   nlohmann::json req;
   try {
     req = nlohmann::json::parse(queryJsonStr);
@@ -423,6 +426,17 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
         throw std::runtime_error("maxVisits must be at least 1");
       params.maxVisits = maxVisits;
     }
+
+    if(req.contains("adaptiveSearch"))
+      params.adaptiveSearch = req["adaptiveSearch"].get<bool>();
+    if(req.contains("adaptiveVisitRatio"))
+      params.adaptiveVisitRatio = req["adaptiveVisitRatio"].get<double>();
+    if(req.contains("adaptiveUtilityTolerance"))
+      params.adaptiveUtilityTolerance = req["adaptiveUtilityTolerance"].get<double>();
+    if(req.contains("adaptiveMaxMultiplier"))
+      params.adaptiveMaxMultiplier = req["adaptiveMaxMultiplier"].get<double>();
+    if(req.contains("adaptiveStepMultiplier"))
+      params.adaptiveStepMultiplier = req["adaptiveStepMultiplier"].get<double>();
 
     const int  analysisPVLen    = req.contains("analysisPVLen")
                                     ? req["analysisPVLen"].get<int>() : analysisPVLen_;
@@ -498,7 +512,6 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
     }
 
     // ---- Search ------------------------------------------------------------
-
     QueryBotLease lease(*this);
     AsyncBot* bot = lease.bot();
 
@@ -512,12 +525,24 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
       throw std::runtime_error("search failed: null search");
 
     nlohmann::json resp;
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = analysisPVLen;
+    options.preventEncore = preventEncore_;
+    options.includePolicy = includePolicy;
+    options.includeOwnership = includeOwnership;
+
     bool suc = search->getAnalysisJson(
       perspective,
-      analysisPVLen, preventEncore_, includePolicy,
-      includeOwnership, false, false, false, false, false,
+      options,
       resp
     );
+
+    if(params.adaptiveSearch && search->getRootVisits() > params.maxVisits && suc) {
+      resp["adaptiveSearch"] = true;
+      resp["adaptiveSearchInitialVisits"] = params.maxVisits;
+      resp["adaptiveSearchFinalVisits"] = search->getRootVisits();
+    }
+
     if(!suc) {
       ReportedSearchValues values;
       if(!search->getRootValues(values))

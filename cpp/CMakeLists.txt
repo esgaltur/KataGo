@@ -415,6 +415,10 @@ if(BUILD_AS_DLL)
     add_executable(katago_dll_smoke lib/katago_api_smoke.cpp)
     target_include_directories(katago_dll_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
     target_link_libraries(katago_dll_smoke PRIVATE katago)
+
+    add_executable(katago_dll_perf lib/katago_api_perf.cpp)
+    target_include_directories(katago_dll_perf PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(katago_dll_perf PRIVATE katago)
   endif()
 else()
   # Traditional: build everything as a single executable

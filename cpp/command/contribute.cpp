@@ -274,7 +274,12 @@ static void runAndUploadSingleGame(
 
       // Usual analysis response fields
       ret["turnNumber"] = hist.moveHistory.size();
-      search->getAnalysisJson(perspective,analysisPVLen,preventEncore,true,alwaysIncludeOwnership,false,false,false,false,false,ret);
+      Search::AnalysisJsonOptions options;
+      options.analysisPVLen = analysisPVLen;
+      options.preventEncore = preventEncore;
+      options.includePolicy = true;
+      options.includeOwnership = alwaysIncludeOwnership;
+      search->getAnalysisJson(perspective, options, ret);
       std::cout << ret.dump() + "\n" << std::flush; // no endl due to race conditions
     }
 

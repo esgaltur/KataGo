@@ -667,21 +667,17 @@ xx......x
 
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = false;
-    bool includeOwnership = false;
-    bool includeOwnershipStdev = false;
-    bool includeMovesOwnership = false;
-    bool includeMovesOwnershipStdev = false;
-    bool includePVVisits = false;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -745,21 +741,17 @@ xx......x
 
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = false;
-    bool includeOwnership = false;
-    bool includeOwnershipStdev = false;
-    bool includeMovesOwnership = false;
-    bool includeMovesOwnershipStdev = false;
-    bool includePVVisits = false;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -823,21 +815,17 @@ xx......x
 
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = false;
-    bool includeOwnership = false;
-    bool includeOwnershipStdev = false;
-    bool includeMovesOwnership = false;
-    bool includeMovesOwnershipStdev = false;
-    bool includePVVisits = false;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -1215,21 +1203,17 @@ ooooo.oooooooo
     search->printTree(cout, search->rootNode, options, P_WHITE);
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = true;
-    bool includeOwnership = true;
-    bool includeOwnershipStdev = false;
-    bool includeMovesOwnership = false;
-    bool includeMovesOwnershipStdev = false;
-    bool includePVVisits = true;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = true;
+    options.includeOwnership = true;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = true;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -1270,21 +1254,17 @@ ooooo.oooooooo
     search->printTree(cout, search->rootNode, options, P_WHITE);
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = false;
-    bool includeOwnership = true;
-    bool includeOwnershipStdev = true;
-    bool includeMovesOwnership = true;
-    bool includeMovesOwnershipStdev = true;
-    bool includePVVisits = false;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = true;
+    options.includeOwnershipStdev = true;
+    options.includeMovesOwnership = true;
+    options.includeMovesOwnershipStdev = true;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -1326,21 +1306,17 @@ ooooo.oooooooo
     search->printTree(cout, search->rootNode, options, P_WHITE);
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = false;
-    bool includeOwnership = true;
-    bool includeOwnershipStdev = true;
-    bool includeMovesOwnership = true;
-    bool includeMovesOwnershipStdev = true;
-    bool includePVVisits = false;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = true;
+    options.includeOwnershipStdev = true;
+    options.includeMovesOwnership = true;
+    options.includeMovesOwnershipStdev = true;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -1380,21 +1356,17 @@ xxxxxxxxx
     search->printTree(cout, search->rootNode, options, P_WHITE);
     nlohmann::json json;
     Player perspective = P_WHITE;
-    int analysisPVLen = 2;
-    bool preventEncore = true;
-    bool includePolicy = true;
-    bool includeOwnership = false;
-    bool includeOwnershipStdev = false;
-    bool includeMovesOwnership = false;
-    bool includeMovesOwnershipStdev = false;
-    bool includePVVisits = false;
-    bool includeNoResultValue = false;
-    bool suc = search->getAnalysisJson(
-      perspective, analysisPVLen, preventEncore,
-      includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-      includeNoResultValue,
-      json
-    );
+    Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = true;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
     testAssert(suc);
     cout << json << endl;
 
@@ -1462,11 +1434,18 @@ xxxxxxxxx
       bool includeMovesOwnershipStdev = false;
       bool includePVVisits = true;
       bool includeNoResultValue = false;
+      Search::AnalysisJsonOptions options;
+      options.analysisPVLen = analysisPVLen;
+      options.preventEncore = preventEncore;
+      options.includePolicy = includePolicy;
+      options.includeOwnership = includeOwnership;
+      options.includeOwnershipStdev = includeOwnershipStdev;
+      options.includeMovesOwnership = includeMovesOwnership;
+      options.includeMovesOwnershipStdev = includeMovesOwnershipStdev;
+      options.includePVVisits = includePVVisits;
+      options.includeNoResultValue = includeNoResultValue;
       suc = search->getAnalysisJson(
-        perspective, analysisPVLen, preventEncore,
-        includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-        includeNoResultValue,
-        json
+        perspective, options, json
       );
       cout << "getAnalysisJson success: " << suc << endl;
       cout << json << endl;
@@ -1745,21 +1724,17 @@ oo..o..oo
 
       nlohmann::json json;
       Player perspective = P_WHITE;
-      int analysisPVLen = 2;
-      bool preventEncore = true;
-      bool includePolicy = false;
-      bool includeOwnership = false;
-      bool includeOwnershipStdev = false;
-      bool includeMovesOwnership = false;
-      bool includeMovesOwnershipStdev = false;
-      bool includePVVisits = false;
-      bool includeNoResultValue = false;
-      bool suc = search->getAnalysisJson(
-        perspective, analysisPVLen, preventEncore,
-        includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-        includeNoResultValue,
-        json
-      );
+      Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
       testAssert(suc);
       cout << json << endl;
 
@@ -1813,21 +1788,17 @@ oo..o..oo
 
       nlohmann::json json;
       Player perspective = P_WHITE;
-      int analysisPVLen = 2;
-      bool preventEncore = true;
-      bool includePolicy = false;
-      bool includeOwnership = false;
-      bool includeOwnershipStdev = false;
-      bool includeMovesOwnership = false;
-      bool includeMovesOwnershipStdev = false;
-      bool includePVVisits = false;
-      bool includeNoResultValue = false;
-      bool suc = search->getAnalysisJson(
-        perspective, analysisPVLen, preventEncore,
-        includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-        includeNoResultValue,
-        json
-      );
+      Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
       testAssert(suc);
       cout << json << endl;
       delete search;
@@ -1861,21 +1832,17 @@ oo..o..oo
 
       nlohmann::json json;
       Player perspective = P_WHITE;
-      int analysisPVLen = 2;
-      bool preventEncore = true;
-      bool includePolicy = false;
-      bool includeOwnership = false;
-      bool includeOwnershipStdev = false;
-      bool includeMovesOwnership = false;
-      bool includeMovesOwnershipStdev = false;
-      bool includePVVisits = false;
-      bool includeNoResultValue = false;
-      bool suc = search->getAnalysisJson(
-        perspective, analysisPVLen, preventEncore,
-        includePolicy, includeOwnership, includeOwnershipStdev, includeMovesOwnership, includeMovesOwnershipStdev, includePVVisits,
-        includeNoResultValue,
-        json
-      );
+      Search::AnalysisJsonOptions options;
+    options.analysisPVLen = 2;
+    options.preventEncore = true;
+    options.includePolicy = false;
+    options.includeOwnership = false;
+    options.includeOwnershipStdev = false;
+    options.includeMovesOwnership = false;
+    options.includeMovesOwnershipStdev = false;
+    options.includePVVisits = false;
+    options.includeNoResultValue = false;
+    bool suc = search->getAnalysisJson(perspective, options, json);
       testAssert(suc);
       cout << json << endl;
       delete search;

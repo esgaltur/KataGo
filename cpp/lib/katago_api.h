@@ -217,6 +217,21 @@ KATAGO_API void KATAGO_CALL katago_wait_all_queries(KataGoEngine* engine);
  */
 KATAGO_API int KATAGO_CALL katago_wait_all_queries_timeout(KataGoEngine* engine, int timeoutMs);
 
+/* ---------- Telemetry ---------- */
+
+/**
+ * Callback type for FFI telemetry and tracing.
+ * Called by the engine when a significant internal span completes.
+ * @param spanName  The name of the measured operation (e.g., "query_json", "search").
+ * @param durationUs The duration of the operation in microseconds.
+ */
+typedef void (KATAGO_CALL *KataGoTelemetryCallback)(const char* spanName, int64_t durationUs);
+
+/**
+ * Set the telemetry callback to bridge KataGo internal timings to the host's tracing system.
+ */
+KATAGO_API void KATAGO_CALL katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback);
+
 /* ---------- Board introspection ---------- */
 
 /**

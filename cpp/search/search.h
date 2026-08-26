@@ -409,12 +409,32 @@ struct Search {
   std::pair<double,double> getShallowAverageShorttermWLAndScoreError(const SearchNode* node = NULL) const;
   bool getSharpScore(const SearchNode* node, double& ret) const;
 
+  struct AnalysisJsonOptions {
+    int analysisPVLen = 15;
+    bool preventEncore = false;
+    bool includePolicy = false;
+    bool includeOwnership = false;
+    bool includeOwnershipStdev = false;
+    bool includeMovesOwnership = false;
+    bool includeMovesOwnershipStdev = false;
+    bool includePVVisits = false;
+    bool includeNoResultValue = false;
+
+    AnalysisJsonOptions& setAnalysisPVLen(int val) { analysisPVLen = val; return *this; }
+    AnalysisJsonOptions& setPreventEncore(bool val) { preventEncore = val; return *this; }
+    AnalysisJsonOptions& setIncludePolicy(bool val) { includePolicy = val; return *this; }
+    AnalysisJsonOptions& setIncludeOwnership(bool val) { includeOwnership = val; return *this; }
+    AnalysisJsonOptions& setIncludeOwnershipStdev(bool val) { includeOwnershipStdev = val; return *this; }
+    AnalysisJsonOptions& setIncludeMovesOwnership(bool val) { includeMovesOwnership = val; return *this; }
+    AnalysisJsonOptions& setIncludeMovesOwnershipStdev(bool val) { includeMovesOwnershipStdev = val; return *this; }
+    AnalysisJsonOptions& setIncludePVVisits(bool val) { includePVVisits = val; return *this; }
+    AnalysisJsonOptions& setIncludeNoResultValue(bool val) { includeNoResultValue = val; return *this; }
+  };
+
   //Fill json with analysis engine format information about search results
   bool getAnalysisJson(
     const Player perspective,
-    int analysisPVLen, bool preventEncore, bool includePolicy,
-    bool includeOwnership, bool includeOwnershipStdev, bool includeMovesOwnership, bool includeMovesOwnershipStdev, bool includePVVisits,
-    bool includeNoResultValue,
+    const AnalysisJsonOptions& options,
     nlohmann::json& ret
   ) const;
 
