@@ -6,6 +6,8 @@
 #include "../search/search.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <numeric>
 
 #include "../core/fancymath.h"
@@ -625,6 +627,27 @@ void Search::runWholeSearch(
   int64_t initialMaxVisits = maxVisits;
   int64_t initialMaxPlayouts = maxPlayouts;
 
+  // Compute adaptive bounds without converting an out-of-range double to
+  // int64_t or overflowing an addition. Query validation normally guarantees
+  // sensible multipliers, but Search is also a public C++ surface.
+  auto boundedScale = [](int64_t value, double multiplier, bool keepAtLeastValue) {
+    if(value <= 0 || !std::isfinite(multiplier) || multiplier <= 0.0)
+      return value;
+    const long double scaled = static_cast<long double>(value) * multiplier;
+    const long double int64Max = static_cast<long double>(std::numeric_limits<int64_t>::max());
+    int64_t result = scaled >= int64Max ? std::numeric_limits<int64_t>::max() : static_cast<int64_t>(scaled);
+    return keepAtLeastValue ? std::max(value, result) : std::max<int64_t>(1, result);
+  };
+  const int64_t adaptiveMaxVisits = boundedScale(initialMaxVisits, searchParams.adaptiveMaxMultiplier, true);
+  const int64_t adaptiveMaxPlayouts = boundedScale(initialMaxPlayouts, searchParams.adaptiveMaxMultiplier, true);
+  const int64_t adaptiveVisitStep = boundedScale(initialMaxVisits, searchParams.adaptiveStepMultiplier, false);
+  const int64_t adaptivePlayoutStep = boundedScale(initialMaxPlayouts, searchParams.adaptiveStepMultiplier, false);
+  auto advanceToward = [](int64_t value, int64_t limit, int64_t step) {
+    if(value >= limit)
+      return value;
+    return value + std::min(step, limit - value);
+  };
+
   while(true) {
     TRACE_SPAN("Search::adaptiveSearchLoop");
     performTaskWithThreads(&searchLoop, capThreads);
@@ -638,7 +661,7 @@ void Search::runWholeSearch(
       break; // Stopped by time or other early stop, not visits cap
     }
     
-    if(maxVisits >= initialMaxVisits * searchParams.adaptiveMaxMultiplier) break;
+    if(maxVisits >= adaptiveMaxVisits) break;
 
     std::vector<AnalysisData> buf;
     getAnalysisData(buf, 2, false, 0, false);
@@ -662,15 +685,9 @@ void Search::runWholeSearch(
     }
 
     // Bump visits by step multiplier, bounded by max multiplier
-    maxVisits = std::min<int64_t>(
-      maxVisits + std::max<int64_t>(1, initialMaxVisits * searchParams.adaptiveStepMultiplier),
-      initialMaxVisits * searchParams.adaptiveMaxMultiplier
-    );
+    maxVisits = advanceToward(maxVisits, adaptiveMaxVisits, adaptiveVisitStep);
     // Scale maxPlayouts relative to initialMaxPlayouts similarly
-    maxPlayouts = std::min<int64_t>(
-      maxPlayouts + std::max<int64_t>(1, initialMaxPlayouts * searchParams.adaptiveStepMultiplier),
-      initialMaxPlayouts * searchParams.adaptiveMaxMultiplier
-    );
+    maxPlayouts = advanceToward(maxPlayouts, adaptiveMaxPlayouts, adaptivePlayoutStep);
   }
 
   //If the search did not actually do anything, we need to still make sure to update the root node if it needs

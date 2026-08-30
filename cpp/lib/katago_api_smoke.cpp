@@ -1,11 +1,18 @@
 #include "katago_api.h"
 
+#include <atomic>
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <thread>
 
 namespace {
+
+std::atomic<int> telemetrySpanCount{0};
+
+void KATAGO_CALL recordTelemetry(const char*, int64_t) {
+  telemetrySpanCount.fetch_add(1, std::memory_order_relaxed);
+}
 
 bool responseSucceeded(const char* response, const char* label) {
   if(response == nullptr) {
@@ -45,6 +52,20 @@ int main(int argc, char** argv) {
   if(!ok)
     std::cerr << "query concurrency did not match requested value" << std::endl;
 
+  const char* missingBoardSize = katago_gtp_command(engine, "boardsize");
+  if(missingBoardSize == nullptr || missingBoardSize[0] != '?') {
+    std::cerr << "missing boardsize argument did not produce a GTP error" << std::endl;
+    ok = false;
+  }
+  katago_free_string(missingBoardSize);
+
+  const char* missingKomi = katago_gtp_command(engine, "komi");
+  if(missingKomi == nullptr || missingKomi[0] != '?') {
+    std::cerr << "missing komi argument did not produce a GTP error" << std::endl;
+    ok = false;
+  }
+  katago_free_string(missingKomi);
+
   const char* malformed = katago_query_json(engine, "{");
   if(malformed == nullptr || std::strstr(malformed, "\"error\"") == nullptr) {
     std::cerr << "malformed JSON did not produce a structured error" << std::endl;
@@ -64,6 +85,16 @@ int main(int argc, char** argv) {
   }
   katago_free_string(illegal);
 
+  const char* invalidAdaptive = katago_query_json(
+    engine,
+    "{\"id\":\"bad-adaptive\",\"adaptiveVisitRatio\":1.25}"
+  );
+  if(invalidAdaptive == nullptr || std::strstr(invalidAdaptive, "\"error\"") == nullptr) {
+    std::cerr << "invalid adaptive settings did not produce a structured error" << std::endl;
+    ok = false;
+  }
+  katago_free_string(invalidAdaptive);
+
   const std::string query =
     "{\"id\":\"smoke\",\"rules\":\"chinese\",\"komi\":7.5,"
     "\"boardXSize\":9,\"boardYSize\":9,\"initialPlayer\":\"B\","
@@ -72,6 +103,7 @@ int main(int argc, char** argv) {
 
   bool first = false;
   bool second = false;
+  katago_set_telemetry_callback(engine, recordTelemetry);
   std::thread t1([&]{
     const char* response = katago_query_json(engine, query.c_str());
     first = responseSucceeded(response, "query 1");
@@ -82,7 +114,12 @@ int main(int argc, char** argv) {
   });
   t1.join();
   t2.join();
+  katago_set_telemetry_callback(nullptr, nullptr);
   ok = ok && first && second;
+  if(telemetrySpanCount.load(std::memory_order_relaxed) == 0) {
+    std::cerr << "telemetry callback did not receive any spans" << std::endl;
+    ok = false;
+  }
 
   katago_destroy(engine);
   if(!ok)

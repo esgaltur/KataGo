@@ -14,6 +14,8 @@ analysis/GTP engine in-process without shelling out to the executable.
 | `katago_api.cpp`         | Adapter      | Thin `extern "C"` layer translating the C API into C++ calls. Also defines `Version::` symbols (the DLL omits `main.cpp`). |
 | `katago_engine.h/.cpp`   | Facade       | `KataGoEngine` — owns the `Logger`, `NNEvaluator`, `AsyncBot`, board/game state, and the async worker pool. Internal only. |
 | `katago_gtp_handler.h/.cpp` | Dispatcher | Parses a GTP command line and routes it to the engine via a command registry. Internal only. |
+| `telemetry.h/.cpp`       | Instrumentation | Thread-safe process-wide timing callback used by engine and search spans. Internal only. |
+| `katago_api_c_smoke.c`   | ABI check    | Pure-C consumer that verifies the public header and import surface without loading a model. |
 
 Architecture: **Adapter (`katago_api.cpp`) → Facade (`KataGoEngine`) → Command dispatcher (`GTPHandler`)**.
 Only `katago_api.h` is part of the public contract; the other headers are internal.
@@ -51,6 +53,7 @@ for `zlib` / `eigen3`. Outputs land in `cpp/build_dll/`:
 
 - `katago.dll` — the shared library
 - `katago.lib` — MSVC import library
+- `katago_dll_c_abi_smoke.exe` — pure-C header/link check (no model required)
 - `katago_dll_smoke.exe` — public-ABI verification harness
 
 To configure manually with CMake, set `-DBUILD_AS_DLL=1` alongside a backend, e.g.:
@@ -87,7 +90,7 @@ KATAGO_DEP_PREFIX=/path/to/prefix/usr \
   bash cpp/build_shared_linux.sh OPENCL
 ```
 
-The helper fails unless the resulting ELF library exports exactly the 19
+The helper fails unless the resulting ELF library exports exactly the 20
 documented `katago_*` C functions and no C++ implementation symbols.
 
 ### ARM64 and OpenCL implementations without profiling queues
@@ -305,6 +308,7 @@ Supported commands: `boardsize`, `clear_board`, `komi`, `play`, `genmove`, `undo
 | `const char* katago_version(void)` | KataGo version string. **Static — do NOT free.** |
 | `int katago_has_human_model(KataGoEngine* engine)` | `1` if a Human-SL model was loaded, else `0` (also `0` for a NULL engine). |
 | `int katago_query_concurrency(KataGoEngine* engine)` | How many `katago_query_json` calls run at once. `0` for a NULL engine. |
+| `void katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback)` | Installs or clears the process-wide timing callback. The callback may run concurrently; `engine` is retained for API consistency and may be NULL. |
 | `void katago_free_string(const char* str)` | Free any heap-allocated string returned by a `katago_*()` function. |
 
 ---
@@ -324,6 +328,10 @@ Supported commands: `boardsize`, `clear_board`, `komi`, `play`, `genmove`, `undo
 - **Async callbacks run on worker threads.** Do not call `katago_destroy()` from inside
   a callback, and never let a C++ exception or foreign-language unwind cross the
   callback boundary. Synchronize access to your own data.
+- **Telemetry is process-wide.** Its callback can be invoked concurrently by searches
+  from any engine. Clear it with `katago_set_telemetry_callback(NULL, NULL)` before
+  unloading the code that owns the callback; changing it does not wait for an invocation
+  already in progress.
 - **Destruction ordering** — `katago_destroy()` sets the shutting-down flag, wakes and
   joins all workers, then releases the bot, NN evaluator, and logger. After destruction,
   the handle is invalid; do not reuse it.

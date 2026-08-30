@@ -4,6 +4,7 @@
 #include "neuralnet/nninputs.h"
 #include "main.h"
 
+#include <cmath>
 #include <functional>
 #include <sstream>
 #include <unordered_map>
@@ -34,9 +35,8 @@ Player parseColor(const std::string& s) {
 using Handler = std::function<std::string(KataGoEngine&, std::istringstream&)>;
 
 std::string handleBoardSize(KataGoEngine& engine, std::istringstream& args) {
-  int size;
-  args >> size;
-  if(size < 2 || size > NNPos::MAX_BOARD_LEN)
+  int size = 0;
+  if(!(args >> size) || size < 2 || size > NNPos::MAX_BOARD_LEN)
     return gtpError("invalid board size");
   engine.setBoardSize(size);
   return gtpSuccess();
@@ -48,8 +48,9 @@ std::string handleClearBoard(KataGoEngine& engine, std::istringstream&) {
 }
 
 std::string handleKomi(KataGoEngine& engine, std::istringstream& args) {
-  float komi;
-  args >> komi;
+  float komi = 0.0f;
+  if(!(args >> komi) || !std::isfinite(komi))
+    return gtpError("invalid komi");
   engine.setKomi(komi);
   return gtpSuccess();
 }

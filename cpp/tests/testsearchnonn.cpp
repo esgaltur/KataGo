@@ -2527,6 +2527,27 @@ x.x.x
 
     testAssert(paramsA.getHash() == paramsA2.getHash());
     testAssert(paramsA.getHash() != paramsB.getHash());
+
+    auto testAdaptiveParamAffectsIdentity = [&paramsA](const SearchParams& changed) {
+      testAssert(changed != paramsA);
+      testAssert(changed.getHash() != paramsA.getHash());
+    };
+    SearchParams adaptiveParams = paramsA;
+    adaptiveParams.adaptiveSearch = !adaptiveParams.adaptiveSearch;
+    testAdaptiveParamAffectsIdentity(adaptiveParams);
+    adaptiveParams = paramsA;
+    adaptiveParams.adaptiveVisitRatio += 0.01;
+    testAdaptiveParamAffectsIdentity(adaptiveParams);
+    adaptiveParams = paramsA;
+    adaptiveParams.adaptiveUtilityTolerance += 0.01;
+    testAdaptiveParamAffectsIdentity(adaptiveParams);
+    adaptiveParams = paramsA;
+    adaptiveParams.adaptiveMaxMultiplier += 0.5;
+    testAdaptiveParamAffectsIdentity(adaptiveParams);
+    adaptiveParams = paramsA;
+    adaptiveParams.adaptiveStepMultiplier += 0.1;
+    testAdaptiveParamAffectsIdentity(adaptiveParams);
+
     cout << "Equal params hash equal: " << (paramsA.getHash() == paramsA2.getHash()) << endl;
     cout << "Differing params hash differ: " << (paramsA.getHash() != paramsB.getHash()) << endl;
 

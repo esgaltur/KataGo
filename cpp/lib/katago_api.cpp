@@ -14,6 +14,7 @@
 #include "katago_api.h"
 #include "katago_engine.h"
 #include "katago_gtp_handler.h"
+#include "telemetry.h"
 #include "main.h"
 
 #include <cstring>
@@ -273,10 +274,11 @@ KATAGO_API void KATAGO_CALL katago_free_string(const char* str) {
   delete[] str;
 }
 
-KataGoTelemetryCallback g_telemetry_callback = nullptr;
-
 KATAGO_API void KATAGO_CALL katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback) {
-  g_telemetry_callback = callback;
+  // Kept in the signature for ABI consistency with other instance-oriented
+  // functions. Telemetry is process-wide; see the public header for details.
+  (void)engine;
+  KataGoTelemetry::setCallback(callback);
 }
 
 } // extern "C"

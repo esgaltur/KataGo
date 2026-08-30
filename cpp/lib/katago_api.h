@@ -154,7 +154,8 @@ KATAGO_API const char* KATAGO_CALL katago_analyze(KataGoEngine* engine);
  * Supported query fields:
  *   id, rules, komi, boardXSize, boardYSize, initialPlayer, initialStones,
  *   moves, maxVisits, analysisPVLen, includeOwnership, includePolicy,
- *   overrideSettings.
+ *   adaptiveSearch, adaptiveVisitRatio, adaptiveUtilityTolerance,
+ *   adaptiveMaxMultiplier, adaptiveStepMultiplier, overrideSettings.
  *
  * `overrideSettings` accepts any config key the analysis engine accepts —
  * including humanSLProfile and the chosenMove* knobs — and is applied to a copy
@@ -231,6 +232,11 @@ typedef void (KATAGO_CALL *KataGoTelemetryCallback)(const char* spanName, int64_
 
 /**
  * Set the telemetry callback to bridge KataGo internal timings to the host's tracing system.
+ *
+ * The callback is process-wide (the engine parameter is retained for API
+ * consistency and may be NULL), may run concurrently on multiple engine/search
+ * threads, and remains installed until replaced or cleared by passing NULL.
+ * Changing it does not wait for a callback that is already in progress.
  */
 KATAGO_API void KATAGO_CALL katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback);
 

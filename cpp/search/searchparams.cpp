@@ -235,6 +235,12 @@ bool SearchParams::operator==(const SearchParams& other) const {
     maxPlayouts == other.maxPlayouts &&
     maxTime == other.maxTime &&
 
+    adaptiveSearch == other.adaptiveSearch &&
+    adaptiveVisitRatio == other.adaptiveVisitRatio &&
+    adaptiveUtilityTolerance == other.adaptiveUtilityTolerance &&
+    adaptiveMaxMultiplier == other.adaptiveMaxMultiplier &&
+    adaptiveStepMultiplier == other.adaptiveStepMultiplier &&
+
     maxVisitsPondering == other.maxVisitsPondering &&
     maxPlayoutsPondering == other.maxPlayoutsPondering &&
     maxTimePondering == other.maxTimePondering &&
@@ -545,6 +551,11 @@ Hash128 SearchParams::getHash() const {
   ret["useEvalCache"] = useEvalCache;
   ret["evalCacheMinVisits"] = evalCacheMinVisits;
   ret["nodeTableShardsPowerOfTwo"] = nodeTableShardsPowerOfTwo;
+  ret["adaptiveSearch"] = adaptiveSearch;
+  ret["adaptiveVisitRatio"] = adaptiveVisitRatio;
+  ret["adaptiveUtilityTolerance"] = adaptiveUtilityTolerance;
+  ret["adaptiveMaxMultiplier"] = adaptiveMaxMultiplier;
+  ret["adaptiveStepMultiplier"] = adaptiveStepMultiplier;
 
   // humanSLProfile's own getHash asserts on an uninitialized profile,
   // so only call it when initialized (the common no-human-model case leaves it uninitialized).
@@ -675,6 +686,12 @@ void SearchParams::printParams(std::ostream& out) const {
   PRINTPARAM(maxVisits);
   PRINTPARAM(maxPlayouts);
   PRINTPARAM(maxTime);
+
+  PRINTPARAM(adaptiveSearch);
+  PRINTPARAM(adaptiveVisitRatio);
+  PRINTPARAM(adaptiveUtilityTolerance);
+  PRINTPARAM(adaptiveMaxMultiplier);
+  PRINTPARAM(adaptiveStepMultiplier);
 
 
   PRINTPARAM(maxVisitsPondering);

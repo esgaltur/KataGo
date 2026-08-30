@@ -71,10 +71,13 @@ cmake --build "${build_dir}" --parallel "${jobs}"
 
 library="${build_dir}/libkatago.so"
 smoke="${build_dir}/katago_dll_smoke"
-if [[ ! -f "${library}" || ! -f "${smoke}" ]]; then
+c_abi_smoke="${build_dir}/katago_dll_c_abi_smoke"
+if [[ ! -f "${library}" || ! -f "${smoke}" || ! -f "${c_abi_smoke}" ]]; then
   echo "Expected build outputs were not produced." >&2
   exit 1
 fi
+
+"${c_abi_smoke}"
 
 export_count="$(nm -D --defined-only "${library}" | awk '{print $3}' | grep -c '^katago_' || true)"
 unexpected_exports="$(nm -D --defined-only "${library}" | awk '{print $3}' | grep -Ev '^(katago_|KATAGO_1$)' || true)"
@@ -86,5 +89,6 @@ fi
 
 echo "Linux KataGo C ABI build complete:"
 echo "  library: ${library}"
+echo "  C ABI:   ${c_abi_smoke} (passed)"
 echo "  smoke:   ${smoke}"
 echo "  exports: ${export_count} (C API only)"

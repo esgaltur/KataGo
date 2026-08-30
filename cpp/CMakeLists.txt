@@ -280,6 +280,7 @@ set(KATAGO_LIB_SOURCES
   core/threadsafequeue.cpp
   core/threadtest.cpp
   core/timer.cpp
+  lib/telemetry.cpp
   game/board.cpp
   game/rules.cpp
   game/boardhistory.cpp
@@ -412,6 +413,12 @@ if(BUILD_AS_DLL)
   # those includes resolve after the move into lib/.
   target_include_directories(katago PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/lib)
   if(BUILD_DLL_SMOKE)
+    # Compile and link one consumer as C (not C++) so accidental C-incompatible
+    # declarations in the public ABI header are caught during every DLL build.
+    add_executable(katago_dll_c_abi_smoke lib/katago_api_c_smoke.c)
+    target_include_directories(katago_dll_c_abi_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+    target_link_libraries(katago_dll_c_abi_smoke PRIVATE katago)
+
     add_executable(katago_dll_smoke lib/katago_api_smoke.cpp)
     target_include_directories(katago_dll_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
     target_link_libraries(katago_dll_smoke PRIVATE katago)

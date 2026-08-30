@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -53,6 +54,18 @@ std::string formatAnalysisJson(Search* search, Player perspective) {
       << "\"utility\": "   << values.utility
       << "}";
   return out.str();
+}
+
+void validateAdaptiveSearchParams(const SearchParams& params) {
+  if(!std::isfinite(params.adaptiveVisitRatio) ||
+     params.adaptiveVisitRatio < 0.0 || params.adaptiveVisitRatio > 1.0)
+    throw std::runtime_error("adaptiveVisitRatio must be between 0 and 1");
+  if(!std::isfinite(params.adaptiveUtilityTolerance) || params.adaptiveUtilityTolerance < 0.0)
+    throw std::runtime_error("adaptiveUtilityTolerance must be non-negative");
+  if(!std::isfinite(params.adaptiveMaxMultiplier) || params.adaptiveMaxMultiplier < 1.0)
+    throw std::runtime_error("adaptiveMaxMultiplier must be at least 1");
+  if(!std::isfinite(params.adaptiveStepMultiplier) || params.adaptiveStepMultiplier <= 0.0)
+    throw std::runtime_error("adaptiveStepMultiplier must be greater than 0");
 }
 
 // Errors are reported in the analysis-engine's shape: an object carrying the
@@ -437,6 +450,7 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
       params.adaptiveMaxMultiplier = req["adaptiveMaxMultiplier"].get<double>();
     if(req.contains("adaptiveStepMultiplier"))
       params.adaptiveStepMultiplier = req["adaptiveStepMultiplier"].get<double>();
+    validateAdaptiveSearchParams(params);
 
     const int  analysisPVLen    = req.contains("analysisPVLen")
                                     ? req["analysisPVLen"].get<int>() : analysisPVLen_;

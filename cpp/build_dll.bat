@@ -154,6 +154,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM --- Verify the public header and import library with a pure-C consumer ---
+if exist "%BUILD_DIR%\katago_dll_c_abi_smoke.exe" (
+    echo.
+    echo Running pure-C ABI smoke test...
+    "%BUILD_DIR%\katago_dll_c_abi_smoke.exe"
+    if errorlevel 1 (
+        echo ERROR: Pure-C ABI smoke test failed.
+        exit /b 1
+    )
+)
+
 REM --- Report results ---
 echo.
 echo ============================================================
@@ -164,10 +175,12 @@ echo Output files:
 if exist "%BUILD_DIR%\katago.dll" (
     echo   DLL:    %CD%\%BUILD_DIR%\katago.dll
     echo   LIB:    %CD%\%BUILD_DIR%\katago.lib
+    echo   C ABI:  %CD%\%BUILD_DIR%\katago_dll_c_abi_smoke.exe
     echo   SMOKE:  %CD%\%BUILD_DIR%\katago_dll_smoke.exe
 ) else if exist "%BUILD_DIR%\%BUILD_TYPE%\katago.dll" (
     echo   DLL:    %CD%\%BUILD_DIR%\%BUILD_TYPE%\katago.dll
     echo   LIB:    %CD%\%BUILD_DIR%\%BUILD_TYPE%\katago.lib
+    echo   C ABI:  %CD%\%BUILD_DIR%\%BUILD_TYPE%\katago_dll_c_abi_smoke.exe
     echo   SMOKE:  %CD%\%BUILD_DIR%\%BUILD_TYPE%\katago_dll_smoke.exe
 ) else (
     echo   (Check %BUILD_DIR% for output files)
