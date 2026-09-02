@@ -90,6 +90,7 @@ Search::Search(const SearchParams& params, NNEvaluator* nnEval, NNEvaluator* hum
    searchParams(params),numSearchesBegun(0),searchNodeAge(0),
    plaThatSearchIsFor(C_EMPTY),plaThatSearchIsForLastSearch(C_EMPTY),
    lastSearchNumPlayouts(0),
+   lastSearchUsedAdaptiveExtension(false),
    effectiveSearchTimeCarriedOver(0.0),
    randSeed(rSeed),
    rootKoHashTable(NULL),
@@ -484,6 +485,9 @@ void Search::runWholeSearch(
   ClockTimer timer;
   atomic<int64_t> numPlayoutsShared(0);
   std::atomic<bool> shouldStopNow(false);
+  std::atomic<bool> stoppedDueToSearchCap(false);
+  std::atomic<bool> stoppedDueToOtherLimit(false);
+  lastSearchUsedAdaptiveExtension = false;
 
   if(!std::atomic_is_lock_free(&numPlayoutsShared))
     logger->write("Warning: int64_t atomic numPlayoutsShared is not lock free");
@@ -547,7 +551,8 @@ void Search::runWholeSearch(
   std::function<void(int)> searchLoop = [
     this,&timer,&numPlayoutsShared,numNonPlayoutVisits,&tcMaxTime,&upperBoundVisitsLeftDueToTime,&tc,
     &hasMaxTime,&hasTc,
-    &shouldStopNow,&shouldStopEarly,maxVisits,maxPlayouts,maxTime,pondering,searchFactor
+    &shouldStopNow,&stoppedDueToSearchCap,&stoppedDueToOtherLimit,
+    &shouldStopEarly,&maxVisits,&maxPlayouts,maxTime,pondering,searchFactor
   ](int threadIdx) {
     SearchThread* stbuf = new SearchThread(threadIdx,*this);
 
@@ -563,17 +568,30 @@ void Search::runWholeSearch(
         if(hasTc)
           tcMaxTimeLimit = tcMaxTime.load(std::memory_order_acquire);
 
-        bool shouldStop =
+        const bool hitSearchCap =
           (numPlayouts >= maxPlayouts) ||
           (numPlayouts + numNonPlayoutVisits >= maxVisits);
+        bool shouldStop = hitSearchCap;
+        bool hitOtherLimit = false;
 
         //Time limits cannot stop us from doing at least a little search so we have a non-null tree
-        if(hasMaxTime && numPlayouts >= 2 && timeUsed >= maxTime)
+        if(hasMaxTime && numPlayouts >= 2 && timeUsed >= maxTime) {
           shouldStop = true;
-        if(hasTc && numPlayouts >= 2 && timeUsed >= tcMaxTimeLimit)
+          hitOtherLimit = true;
+        }
+        if(hasTc && numPlayouts >= 2 && timeUsed >= tcMaxTimeLimit) {
           shouldStop = true;
-        if(shouldStopEarly != NULL && (*shouldStopEarly)())
+          hitOtherLimit = true;
+        }
+        if(shouldStopEarly != NULL && (*shouldStopEarly)()) {
           shouldStop = true;
+          hitOtherLimit = true;
+        }
+
+        if(hitSearchCap)
+          stoppedDueToSearchCap.store(true, std::memory_order_relaxed);
+        if(hitOtherLimit)
+          stoppedDueToOtherLimit.store(true, std::memory_order_relaxed);
 
         //But an explicit stop signal can stop us from doing any search
         if(shouldStop || shouldStopNow.load(std::memory_order_relaxed)) {
@@ -650,16 +668,19 @@ void Search::runWholeSearch(
 
   while(true) {
     TRACE_SPAN("Search::adaptiveSearchLoop");
+    // performTaskWithThreads uses this flag to stop sibling search threads.
+    // A visit cap from the previous iteration must not stop the enlarged one.
+    shouldStopNow.store(false, std::memory_order_relaxed);
+    stoppedDueToSearchCap.store(false, std::memory_order_relaxed);
+    stoppedDueToOtherLimit.store(false, std::memory_order_relaxed);
     performTaskWithThreads(&searchLoop, capThreads);
 
     if(!searchParams.adaptiveSearch) break;
     if(shouldStopEarly != nullptr && (*shouldStopEarly)()) break;
-    if(shouldStopNow.load(std::memory_order_relaxed)) break;
     
-    int64_t numPlayouts = numPlayoutsShared.load(std::memory_order_relaxed);
-    if(numPlayouts + numNonPlayoutVisits < maxVisits && numPlayouts < maxPlayouts) {
-      break; // Stopped by time or other early stop, not visits cap
-    }
+    if(stoppedDueToOtherLimit.load(std::memory_order_relaxed) ||
+       !stoppedDueToSearchCap.load(std::memory_order_relaxed))
+      break; // Stopped by time/cancellation/another early stop, not a search cap.
     
     if(maxVisits >= adaptiveMaxVisits) break;
 
@@ -688,6 +709,7 @@ void Search::runWholeSearch(
     maxVisits = advanceToward(maxVisits, adaptiveMaxVisits, adaptiveVisitStep);
     // Scale maxPlayouts relative to initialMaxPlayouts similarly
     maxPlayouts = advanceToward(maxPlayouts, adaptiveMaxPlayouts, adaptivePlayoutStep);
+    lastSearchUsedAdaptiveExtension = true;
   }
 
   //If the search did not actually do anything, we need to still make sure to update the root node if it needs

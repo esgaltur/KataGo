@@ -94,15 +94,25 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
                            const std::string& humanModelFile,
                            const std::string& configFile,
                            int numThreads,
-                           int numQueryBots)
+                           int numQueryBots,
+                           int numAsyncWorkers,
+                           int asyncQueueCapacity)
   : nnEval_(nullptr)
   , humanEval_(nullptr)
   , perspective_(P_BLACK)
   , analysisPVLen_(15)
   , preventEncore_(true)
+  , assumeMultipleStartingBlackMovesAreHandicap_(true)
   , initialPlayer_(P_BLACK)
   , nextPlayer_(P_BLACK)
 {
+  if(numAsyncWorkers < 1 || numAsyncWorkers > 16)
+    throw std::runtime_error("numAsyncWorkers must be between 1 and 16");
+  if(asyncQueueCapacity < 1 || asyncQueueCapacity > 65536)
+    throw std::runtime_error("asyncQueueCapacity must be between 1 and 65536");
+  desiredWorkers_ = numAsyncWorkers;
+  asyncQueueCapacity_ = (size_t)asyncQueueCapacity;
+
   cfg_ = std::make_unique<ConfigParser>(configFile);
   ConfigParser& cfg = *cfg_;
 
@@ -145,6 +155,8 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
     analysisPVLen_ = cfg.getInt("analysisPVLen", 1, 100);
   if(cfg.contains("preventCleanupPhase"))
     preventEncore_ = cfg.getBool("preventCleanupPhase");
+  if(cfg.contains("assumeMultipleStartingBlackMovesAreHandicap"))
+    assumeMultipleStartingBlackMovesAreHandicap_ = cfg.getBool("assumeMultipleStartingBlackMovesAreHandicap");
 
   // How many queryJson() calls may run at once. Matches the analysis engine's
   // numAnalysisThreads so a config tuned for katago.exe behaves the same here.
@@ -156,7 +168,8 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
     numQueryBots = 1;
 
   int threads = (numThreads > 0 ? numThreads : params_.numThreads);
-  int expectedConcurrentEvals = std::max(threads * numQueryBots, 4);
+  const int concurrentSearches = numQueryBots + numAsyncWorkers + 1;
+  int expectedConcurrentEvals = std::max(threads * concurrentSearches, 4);
   int defaultMaxBatchSize = std::max(8, ((expectedConcurrentEvals + 3) / 4) * 4);
 
   Rand seedRand;
@@ -194,7 +207,11 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
   initialBoard_ = board_;
   nextPlayer_   = P_BLACK;
   initialPlayer_= P_BLACK;
-  history_      = BoardHistory(board_, nextPlayer_, rules_, 0, false);
+  history_      = BoardHistory(
+    board_, nextPlayer_, rules_, 0,
+    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+  );
+  history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
 
   Rand botRand;
   bot_ = std::make_unique<AsyncBot>(
@@ -211,11 +228,12 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
     ));
   }
   queryBotBusy_.assign((size_t)numQueryBots, false);
+  activeQueryIds_.assign((size_t)numQueryBots, std::string());
 }
 
 // --- Query bot pool ---
 
-KataGoEngine::QueryBotLease::QueryBotLease(KataGoEngine& engine)
+KataGoEngine::QueryBotLease::QueryBotLease(KataGoEngine& engine, const std::string& queryId)
   : engine_(engine), index_(0), bot_(nullptr)
 {
   std::unique_lock<std::mutex> lock(engine_.poolMutex_);
@@ -229,6 +247,7 @@ KataGoEngine::QueryBotLease::QueryBotLease(KataGoEngine& engine)
     return false;
   });
   engine_.queryBotBusy_[index_] = true;
+  engine_.activeQueryIds_[index_] = queryId;
   bot_ = engine_.queryBots_[index_].get();
 }
 
@@ -236,8 +255,22 @@ KataGoEngine::QueryBotLease::~QueryBotLease() {
   {
     std::lock_guard<std::mutex> lock(engine_.poolMutex_);
     engine_.queryBotBusy_[index_] = false;
+    engine_.activeQueryIds_[index_].clear();
   }
   engine_.poolCV_.notify_one();
+}
+
+bool KataGoEngine::cancelJsonQuery(const std::string& queryId) {
+  if(queryId.empty())
+    return false;
+  std::lock_guard<std::mutex> lock(poolMutex_);
+  for(size_t i = 0; i < activeQueryIds_.size(); i++) {
+    if(queryBotBusy_[i] && activeQueryIds_[i] == queryId) {
+      queryBots_[i]->stopWithoutWait();
+      return true;
+    }
+  }
+  return false;
 }
 
 bool KataGoEngine::hasHumanModel() const {
@@ -278,7 +311,11 @@ void KataGoEngine::setBoardSize(int size) {
   initialBoard_ = board_;
   nextPlayer_   = P_BLACK;
   initialPlayer_= P_BLACK;
-  history_      = BoardHistory(board_, nextPlayer_, rules_, 0, false);
+  history_      = BoardHistory(
+    board_, nextPlayer_, rules_, 0,
+    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+  );
+  history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
   syncBotPosition();
 }
 
@@ -288,7 +325,11 @@ void KataGoEngine::clearBoard() {
   initialBoard_ = board_;
   nextPlayer_   = P_BLACK;
   initialPlayer_= P_BLACK;
-  history_      = BoardHistory(board_, nextPlayer_, rules_, 0, false);
+  history_      = BoardHistory(
+    board_, nextPlayer_, rules_, 0,
+    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+  );
+  history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
   syncBotPosition();
 }
 
@@ -298,29 +339,68 @@ void KataGoEngine::setKomi(float komi) {
   history_.setKomi(komi);
 }
 
-void KataGoEngine::setRules(const Rules& rules) {
+bool KataGoEngine::setRules(const Rules& requestedRules, std::string& outError) {
   std::lock_guard<std::mutex> lock(mutex_);
+  Rules rules = requestedRules;
+  rules.komi = rules_.komi;
+
+  bool rulesWereSupported;
+  nnEval_->getSupportedRules(rules, rulesWereSupported);
+  if(!rulesWereSupported) {
+    outError = "rules are not supported by the loaded neural network";
+    return false;
+  }
+
+  Board replayBoard = initialBoard_;
+  BoardHistory replayHistory(
+    replayBoard,
+    initialPlayer_,
+    rules,
+    0,
+    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+  );
+  replayHistory.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
+  Player replayPlayer = initialPlayer_;
+  const std::vector<Move> moves = history_.moveHistory;
+  for(const Move& move : moves) {
+    if(move.pla != replayPlayer) {
+      replayBoard.clearSimpleKoLoc();
+      replayHistory.clear(replayBoard, move.pla, rules, replayHistory.encorePhase);
+      replayHistory.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
+    }
+    if(!replayHistory.makeBoardMoveTolerant(replayBoard, move.loc, move.pla, preventEncore_)) {
+      outError = "an earlier move cannot be replayed under the requested rules";
+      return false;
+    }
+    replayPlayer = getOpp(move.pla);
+  }
+
   rules_ = rules;
-  history_.rules = rules;
+  board_ = std::move(replayBoard);
+  history_ = std::move(replayHistory);
+  nextPlayer_ = replayPlayer;
+  syncBotPosition();
+  return true;
 }
 
 bool KataGoEngine::playMove(Player pla, const std::string& locStr, std::string& outError) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if(locStr == "pass" || locStr == "PASS") {
-    history_.makeBoardMoveAssumeLegal(board_, Board::PASS_LOC, pla, nullptr);
-    nextPlayer_ = getOpp(pla);
-    syncBotPosition();
-    return true;
+  Loc loc = Board::PASS_LOC;
+  if(locStr != "pass" && locStr != "PASS") {
+    loc = Location::ofString(locStr, board_);
   }
 
-  Loc loc = Location::ofString(locStr, board_);
-  if(!board_.isLegal(loc, pla, rules_.multiStoneSuicideLegal)) {
+  if(pla != nextPlayer_) {
+    board_.clearSimpleKoLoc();
+    history_.clear(board_, pla, rules_, history_.encorePhase);
+    history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
+  }
+  if(!history_.makeBoardMoveTolerant(board_, loc, pla, preventEncore_)) {
     outError = "illegal move";
     return false;
   }
 
-  history_.makeBoardMoveAssumeLegal(board_, loc, pla, nullptr);
   nextPlayer_ = getOpp(pla);
   syncBotPosition();
   return true;
@@ -337,10 +417,20 @@ bool KataGoEngine::undoMove() {
 
   board_      = initialBoard_;
   nextPlayer_ = initialPlayer_;
-  history_    = BoardHistory(board_, nextPlayer_, rules_, 0, false);
+  history_    = BoardHistory(
+    board_, nextPlayer_, rules_, 0,
+    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+  );
+  history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
 
   for(const Move& m : moves) {
-    history_.makeBoardMoveAssumeLegal(board_, m.loc, m.pla, nullptr);
+    if(m.pla != nextPlayer_) {
+      board_.clearSimpleKoLoc();
+      history_.clear(board_, m.pla, rules_, history_.encorePhase);
+      history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
+    }
+    if(!history_.makeBoardMoveTolerant(board_, m.loc, m.pla, preventEncore_))
+      throw std::runtime_error("undo replay failed");
     nextPlayer_ = getOpp(m.pla);
   }
   syncBotPosition();
@@ -388,7 +478,19 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
     return makeQueryErrorJson("", std::string("Invalid JSON: ") + e.what());
   }
 
-  std::string id = req.value("id", "");
+  if(!req.is_object())
+    return makeQueryErrorJson("", "request must be a JSON object");
+
+  std::string id;
+  try {
+    if(req.contains("id")) {
+      if(!req["id"].is_string())
+        return makeQueryErrorJson("", "id must be a string");
+      id = req["id"].get<std::string>();
+    }
+  } catch(const std::exception& e) {
+    return makeQueryErrorJson("", e.what());
+  }
 
   try {
     // ---- Search parameters -------------------------------------------------
@@ -454,6 +556,8 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
 
     const int  analysisPVLen    = req.contains("analysisPVLen")
                                     ? req["analysisPVLen"].get<int>() : analysisPVLen_;
+    if(analysisPVLen < 1 || analysisPVLen > 1000)
+      throw std::runtime_error("analysisPVLen must be between 1 and 1000");
     const bool includeOwnership = req.value("includeOwnership", false);
     const bool includePolicy    = req.value("includePolicy", false);
 
@@ -468,40 +572,89 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
       throw std::runtime_error("board size out of range");
 
     Rules r = rules_;
-    if(req.contains("rules") && req["rules"].is_string())
-      r = Rules::parseRules(req["rules"].get<std::string>());
-    if(req.contains("komi") && req["komi"].is_number())
-      r.komi = req["komi"].get<float>();
+    if(req.contains("rules")) {
+      if(req["rules"].is_string())
+        r = Rules::parseRules(req["rules"].get<std::string>());
+      else if(req["rules"].is_object())
+        r = Rules::parseRules(req["rules"].dump());
+      else
+        throw std::runtime_error("rules must be a rules name or detailed rules object");
+    }
+    if(req.contains("komi")) {
+      if(!req["komi"].is_number())
+        throw std::runtime_error("komi must be numeric");
+      const double komi = req["komi"].get<double>();
+      if(!std::isfinite(komi) || komi < Rules::MIN_USER_KOMI || komi > Rules::MAX_USER_KOMI ||
+         !Rules::komiIsIntOrHalfInt((float)komi))
+        throw std::runtime_error("komi must be an integer or half-integer from -400 to 400");
+      r.komi = (float)komi;
+    }
+    if(req.contains("whiteHandicapBonus")) {
+      if(!req["whiteHandicapBonus"].is_string())
+        throw std::runtime_error("whiteHandicapBonus must be a string");
+      r.whiteHandicapBonusRule = Rules::parseWhiteHandicapBonusRule(
+        req["whiteHandicapBonus"].get<std::string>()
+      );
+    }
+
+    bool rulesWereSupported;
+    Rules supportedRules = nnEval_->getSupportedRules(r, rulesWereSupported);
+    const std::string rulesWarning = rulesWereSupported
+      ? std::string()
+      : "requested rules are unsupported by the neural network; compatible rules were used";
+    r = supportedRules;
 
     Board b(bx, by);
     Player pla = P_BLACK;
 
-    if(req.contains("initialPlayer") && req["initialPlayer"].is_string()) {
+    if(req.contains("initialPlayer")) {
+      if(!req["initialPlayer"].is_string())
+        throw std::runtime_error("initialPlayer must be \"B\" or \"W\"");
       Player parsed;
       if(!PlayerIO::tryParsePlayer(req["initialPlayer"].get<std::string>(), parsed))
         throw std::runtime_error("initialPlayer must be \"B\" or \"W\"");
       pla = parsed;
     }
 
-    BoardHistory hist(b, pla, r, 0, false);
-
-    if(req.contains("initialStones") && req["initialStones"].is_array()) {
+    if(req.contains("initialStones") && !req["initialStones"].is_array())
+      throw std::runtime_error("initialStones must be an array");
+    if(req.contains("initialStones")) {
       for(const auto& item : req["initialStones"]) {
-        if(!item.is_array() || item.size() < 2)
+        if(!item.is_array() || item.size() != 2)
           throw std::runtime_error("each initialStones entry must be [player, location]");
         Player p;
         if(!PlayerIO::tryParsePlayer(item[0].get<std::string>(), p))
           throw std::runtime_error("bad player in initialStones");
         Loc loc = Location::ofString(item[1].get<std::string>(), b);
-        b.setStone(loc, p);
+        if(loc == Board::PASS_LOC || !b.setStone(loc, p))
+          throw std::runtime_error("invalid location in initialStones");
       }
-      hist.clear(b, pla, r, 0);
     }
 
+    if(!req.contains("initialPlayer")) {
+      if(req.contains("moves") && req["moves"].is_array() && !req["moves"].empty()) {
+        const auto& firstMove = req["moves"][0];
+        if(!firstMove.is_array() || firstMove.size() != 2 || !firstMove[0].is_string() ||
+           !PlayerIO::tryParsePlayer(firstMove[0].get<std::string>(), pla))
+          throw std::runtime_error("bad first move while inferring initialPlayer");
+      }
+      else
+        pla = BoardHistory::numHandicapStonesOnBoard(b) > 0 ? P_WHITE : P_BLACK;
+    }
+
+    BoardHistory hist(
+      b, pla, r, 0,
+      Search::resolveAlwaysComputePassAliveUnderSuicideRules(params, nnEval_.get())
+    );
+    hist.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
+
     size_t numMoves = 0;
-    if(req.contains("moves") && req["moves"].is_array()) {
+    if(req.contains("moves") && !req["moves"].is_array())
+      throw std::runtime_error("moves must be an array");
+    const bool strictHistory = req.value("strictHistory", false);
+    if(req.contains("moves")) {
       for(const auto& item : req["moves"]) {
-        if(!item.is_array() || item.size() < 2)
+        if(!item.is_array() || item.size() != 2)
           throw std::runtime_error("each moves entry must be [player, location]");
         Player p;
         if(!PlayerIO::tryParsePlayer(item[0].get<std::string>(), p))
@@ -512,21 +665,28 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
         // Match the analysis executable: tolerate an explicit change of player
         // by clearing simple-ko history, but reject genuinely illegal moves
         // instead of passing untrusted input to an AssumeLegal operation.
-        if(p != pla) {
+        if(strictHistory && p != pla)
+          throw std::runtime_error("move " + Global::uint64ToString(numMoves) + " has the wrong player");
+        if(!strictHistory && p != pla) {
           b.clearSimpleKoLoc();
           hist.clear(b, p, r, hist.encorePhase);
+          hist.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
         }
-        if(!hist.makeBoardMoveTolerant(b, loc, p, preventEncore_))
+        const bool moveSucceeded = strictHistory
+          ? hist.isLegal(b, loc, p)
+          : hist.isLegalTolerant(b, loc, p);
+        if(!moveSucceeded)
           throw std::runtime_error(
             "illegal move " + Global::uint64ToString(numMoves) + ": " + locStr
           );
+        hist.makeBoardMoveAssumeLegal(b, loc, p, nullptr, preventEncore_);
         pla = getOpp(p);
         numMoves++;
       }
     }
 
     // ---- Search ------------------------------------------------------------
-    QueryBotLease lease(*this);
+    QueryBotLease lease(*this, id);
     AsyncBot* bot = lease.bot();
 
     bot->setParams(params);
@@ -551,7 +711,7 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
       resp
     );
 
-    if(params.adaptiveSearch && search->getRootVisits() > params.maxVisits && suc) {
+    if(params.adaptiveSearch && search->lastSearchUsedAdaptiveExtension && suc) {
       resp["adaptiveSearch"] = true;
       resp["adaptiveSearchInitialVisits"] = params.maxVisits;
       resp["adaptiveSearchFinalVisits"] = search->getRootVisits();
@@ -567,6 +727,7 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
     }
 
     if(!id.empty()) resp["id"] = id;
+    if(!rulesWarning.empty()) resp["warning"] = rulesWarning;
     resp["turnNumber"] = numMoves;
     return resp.dump();
   }
@@ -608,7 +769,7 @@ bool KataGoEngine::isShuttingDown() const {
 
 int KataGoEngine::submitAnalysisQuery(AnalysisCallback callback) {
   if(shutdownWorkers_.load())
-    throw std::runtime_error("engine is shutting down");
+    throw KataGoShuttingDownError();
 
   AnalysisQuery query;
   {
@@ -622,15 +783,20 @@ int KataGoEngine::submitAnalysisQuery(AnalysisCallback callback) {
     query.callback        = std::move(callback);
   }
 
+  const int queryId = query.queryId;
   ensureWorkersStarted();
 
-  pendingCount_++;
   {
     std::lock_guard<std::mutex> lock(queueMutex_);
+    if(shutdownWorkers_.load())
+      throw KataGoShuttingDownError();
+    if(queryQueue_.size() >= asyncQueueCapacity_)
+      throw KataGoQueueFullError();
     queryQueue_.push(std::move(query));
+    pendingCount_++;
   }
   queueCV_.notify_one();
-  return query.queryId;
+  return queryId;
 }
 
 int KataGoEngine::pendingQueryCount() const {
@@ -681,20 +847,30 @@ void KataGoEngine::workerLoop() {
       queryQueue_.pop();
     }
 
+    std::string jsonResult;
+    std::string errorMessage;
     try {
+      workerBot.setParams(query.paramsSnapshot);
       workerBot.setPosition(query.playerSnapshot, query.boardSnapshot, query.historySnapshot);
       workerBot.genMoveSynchronous(query.playerSnapshot, TimeControls());
 
       Search* search = workerBot.getSearchStopAndWait();
-      if(!search) {
-        query.callback(query.queryId, "", "search failed: null search");
-      } else {
-        std::string jsonResult = formatAnalysisJson(search, perspective_);
-        query.callback(query.queryId, jsonResult, "");
-      }
+      if(!search)
+        errorMessage = "search failed: null search";
+      else
+        jsonResult = formatAnalysisJson(search, perspective_);
     } catch(const std::exception& e) {
-      query.callback(query.queryId, "", e.what());
+      errorMessage = e.what();
+    } catch(...) {
+      errorMessage = "unknown native exception";
     }
+
+    // A callback is invoked at most once. Foreign-language callbacks must not
+    // unwind, but contain a C++ exception as a last line of defense so the
+    // worker and pending-query accounting remain live.
+    try {
+      query.callback(query.queryId, jsonResult, errorMessage);
+    } catch(...) {}
 
     pendingCount_--;
     doneCV_.notify_all();

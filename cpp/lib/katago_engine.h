@@ -30,11 +30,20 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
 // Forward-declared so the C API can use an opaque pointer.
+struct KataGoQueueFullError : public std::runtime_error {
+  KataGoQueueFullError() : std::runtime_error("async analysis queue is full") {}
+};
+
+struct KataGoShuttingDownError : public std::runtime_error {
+  KataGoShuttingDownError() : std::runtime_error("engine is shutting down") {}
+};
+
 struct KataGoEngine {
 
   // --- Construction / Destruction ---
@@ -50,7 +59,9 @@ struct KataGoEngine {
                const std::string& humanModelFile,
                const std::string& configFile,
                int numThreads,
-               int numQueryBots);
+               int numQueryBots,
+               int numAsyncWorkers = 1,
+               int asyncQueueCapacity = 64);
   ~KataGoEngine();
 
   // Non-copyable, non-movable (owns heavy resources).
@@ -62,7 +73,7 @@ struct KataGoEngine {
   void setBoardSize(int size);
   void clearBoard();
   void setKomi(float komi);
-  void setRules(const Rules& rules);
+  bool setRules(const Rules& rules, std::string& outError);
 
   // Returns true on success. Sets outError on failure.
   bool playMove(Player pla, const std::string& locStr, std::string& outError);
@@ -89,6 +100,7 @@ struct KataGoEngine {
   // entirely from the JSON and the engine's own board is neither read nor
   // written, so up to numQueryBots calls run concurrently.
   std::string queryJson(const std::string& queryJsonStr);
+  bool cancelJsonQuery(const std::string& queryId);
 
   // Whether a human SL model was loaded. Queries that set humanSLProfile are
   // rejected when this is false.
@@ -158,6 +170,7 @@ private:
   Player                        perspective_;    // reportAnalysisWinratesAs
   int                           analysisPVLen_;
   bool                          preventEncore_;
+  bool                          assumeMultipleStartingBlackMovesAreHandicap_;
 
   // Game state
   Rules         rules_;
@@ -180,11 +193,12 @@ private:
   std::condition_variable                poolCV_;
   std::vector<std::unique_ptr<AsyncBot>> queryBots_;
   std::vector<bool>                      queryBotBusy_;
+  std::vector<std::string>               activeQueryIds_;
 
   // RAII lease on one pooled bot; blocks in the constructor until one is free.
   class QueryBotLease {
   public:
-    explicit QueryBotLease(KataGoEngine& engine);
+    QueryBotLease(KataGoEngine& engine, const std::string& queryId);
     ~QueryBotLease();
     QueryBotLease(const QueryBotLease&) = delete;
     QueryBotLease& operator=(const QueryBotLease&) = delete;
@@ -214,6 +228,7 @@ private:
   std::condition_variable       doneCV_;       // signaled when pendingCount_ reaches 0
   std::vector<std::thread>      workers_;
   int                           desiredWorkers_ = 1;
+  size_t                        asyncQueueCapacity_ = 64;
   bool                          workersStarted_ = false;
 
   void ensureWorkersStarted();

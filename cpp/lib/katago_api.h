@@ -49,6 +49,15 @@ typedef struct KataGoEngine KataGoEngine;
  * same major ABI version.
  */
 #define KATAGO_API_VERSION 1
+#define KATAGO_API_VERSION_MINOR 1
+
+/* Optional, additive ABI-v1 capabilities returned by katago_api_capabilities(). */
+#define KATAGO_CAP_CREATE_OPTIONS       (UINT64_C(1) << 0)
+#define KATAGO_CAP_QUERY_CANCELLATION   (UINT64_C(1) << 1)
+#define KATAGO_CAP_TELEMETRY_CONTEXT    (UINT64_C(1) << 2)
+#define KATAGO_CAP_BOUNDED_ASYNC_QUEUE  (UINT64_C(1) << 3)
+#define KATAGO_CAP_STRICT_HISTORY       (UINT64_C(1) << 4)
+#define KATAGO_CAP_ADAPTIVE_SEARCH      (UINT64_C(1) << 5)
 
 /* ---------- Error codes ---------- */
 enum KataGoError {
@@ -59,8 +68,18 @@ enum KataGoError {
   KATAGO_ERR_SHUTTING_DOWN = -4,
   KATAGO_ERR_INVALID_STATE = -5,  /* Operation not valid in the current state
                                      (e.g. changing worker count after workers started). */
-  KATAGO_ERR_TIMEOUT       = -6   /* A bounded wait expired before completing. */
+  KATAGO_ERR_TIMEOUT       = -6,  /* A bounded wait expired before completing. */
+  KATAGO_ERR_NOT_FOUND     = -7   /* A requested query was not active. */
 };
+
+/** Versioned construction options. Zero-initialize, then set structSize. */
+typedef struct KataGoCreateOptions {
+  uint32_t structSize;
+  int32_t numThreads;
+  int32_t numQueryBots;
+  int32_t numAsyncWorkers;
+  int32_t asyncQueueCapacity;
+} KataGoCreateOptions;
 
 /**
  * Callback type for asynchronous analysis results.
@@ -125,6 +144,20 @@ KATAGO_API KataGoEngine* KATAGO_CALL katago_create_ex(const char* modelFile,
                                                       const char** outError);
 
 /**
+ * Additive constructor with explicit async worker and queue sizing.
+ * Zero values select the same defaults as katago_create_ex(). `structSize`
+ * must be at least sizeof(KataGoCreateOptions); larger future structs are
+ * accepted and their unknown suffix is ignored.
+ */
+KATAGO_API KataGoEngine* KATAGO_CALL katago_create_with_options(
+  const char* modelFile,
+  const char* humanModelFile,
+  const char* configFile,
+  const KataGoCreateOptions* options,
+  const char** outError
+);
+
+/**
  * Destroy an engine instance and release all resources.
  * Passing NULL is a safe no-op.
  *
@@ -155,7 +188,8 @@ KATAGO_API const char* KATAGO_CALL katago_analyze(KataGoEngine* engine);
  *   id, rules, komi, boardXSize, boardYSize, initialPlayer, initialStones,
  *   moves, maxVisits, analysisPVLen, includeOwnership, includePolicy,
  *   adaptiveSearch, adaptiveVisitRatio, adaptiveUtilityTolerance,
- *   adaptiveMaxMultiplier, adaptiveStepMultiplier, overrideSettings.
+ *   adaptiveMaxMultiplier, adaptiveStepMultiplier, strictHistory,
+ *   whiteHandicapBonus, overrideSettings.
  *
  * `overrideSettings` accepts any config key the analysis engine accepts —
  * including humanSLProfile and the chosenMove* knobs — and is applied to a copy
@@ -175,6 +209,15 @@ KATAGO_API const char* KATAGO_CALL katago_analyze(KataGoEngine* engine);
  */
 KATAGO_API const char* KATAGO_CALL katago_query_json(KataGoEngine* engine, const char* queryJson);
 
+/**
+ * Cooperatively stop an active JSON query identified by its request `id`.
+ * IDs should be unique among concurrent calls. Returns KATAGO_SUCCESS when a
+ * matching active search was signaled, KATAGO_ERR_NOT_FOUND otherwise, or
+ * KATAGO_ERR_INVALID_ARG for NULL/empty input. The query call still owns its
+ * response and must be joined by the host.
+ */
+KATAGO_API int KATAGO_CALL katago_cancel_query_json(KataGoEngine* engine, const char* queryId);
+
 /* ---------- Analysis (asynchronous) ---------- */
 
 /**
@@ -189,6 +232,7 @@ KATAGO_API const char* KATAGO_CALL katago_query_json(KataGoEngine* engine, const
  * @param userData  Opaque pointer forwarded to the callback.
  * @param outQueryId  If non-NULL, receives the query ID for tracking.
  * @return KATAGO_SUCCESS, KATAGO_ERR_INVALID_ARG if engine/callback is NULL,
+ *         KATAGO_ERR_QUEUE_FULL when the configured bound is reached,
  *         KATAGO_ERR_SHUTTING_DOWN if the engine is being destroyed,
  *         or KATAGO_ERR_ENGINE on internal failure.
  */
@@ -230,6 +274,10 @@ KATAGO_API int KATAGO_CALL katago_wait_all_queries_timeout(KataGoEngine* engine,
  */
 typedef void (KATAGO_CALL *KataGoTelemetryCallback)(const char* spanName, int64_t durationUs);
 
+typedef void (KATAGO_CALL *KataGoTelemetryCallbackEx)(const char* spanName,
+                                                      int64_t durationUs,
+                                                      void* userData);
+
 /**
  * Set the telemetry callback to bridge KataGo internal timings to the host's tracing system.
  *
@@ -239,6 +287,21 @@ typedef void (KATAGO_CALL *KataGoTelemetryCallback)(const char* spanName, int64_
  * Changing it does not wait for a callback that is already in progress.
  */
 KATAGO_API void KATAGO_CALL katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback);
+
+/**
+ * Install a callback with an opaque host context. The context is borrowed and
+ * may be read concurrently until the registration is quiescent.
+ */
+KATAGO_API int KATAGO_CALL katago_set_telemetry_callback_ex(KataGoEngine* engine,
+                                                            KataGoTelemetryCallbackEx callback,
+                                                            void* userData);
+
+/**
+ * Clear telemetry and wait for callbacks already in progress before freeing
+ * userData. Calling clear from inside a telemetry callback returns
+ * KATAGO_ERR_INVALID_STATE instead of deadlocking.
+ */
+KATAGO_API int KATAGO_CALL katago_clear_telemetry_callback_and_wait(KataGoEngine* engine);
 
 /* ---------- Board introspection ---------- */
 
@@ -281,6 +344,12 @@ KATAGO_API const char* KATAGO_CALL katago_version(void);
 
 /** Get KATAGO_API_VERSION for runtime compatibility checks. Thread-safe. */
 KATAGO_API int KATAGO_CALL katago_api_version(void);
+
+/** Additive revision within KATAGO_API_VERSION. */
+KATAGO_API int KATAGO_CALL katago_api_version_minor(void);
+
+/** Bitset of KATAGO_CAP_* extensions supported by this library. */
+KATAGO_API uint64_t KATAGO_CALL katago_api_capabilities(void);
 
 /**
  * Whether a human SL model was loaded (see katago_create_ex).

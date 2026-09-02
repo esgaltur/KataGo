@@ -4,6 +4,8 @@
 #include "neuralnet/nninputs.h"
 #include "main.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <sstream>
@@ -16,7 +18,7 @@ namespace {
 
 // GTP response helpers
 std::string gtpSuccess(const std::string& msg = "") {
-  return "= " + msg;
+  return msg.empty() ? "=" : "= " + msg;
 }
 std::string gtpError(const std::string& msg) {
   return "? " + msg;
@@ -49,7 +51,9 @@ std::string handleClearBoard(KataGoEngine& engine, std::istringstream&) {
 
 std::string handleKomi(KataGoEngine& engine, std::istringstream& args) {
   float komi = 0.0f;
-  if(!(args >> komi) || !std::isfinite(komi))
+  if(!(args >> komi) || !std::isfinite(komi) ||
+     komi < Rules::MIN_USER_KOMI || komi > Rules::MAX_USER_KOMI ||
+     !Rules::komiIsIntOrHalfInt(komi))
     return gtpError("invalid komi");
   engine.setKomi(komi);
   return gtpSuccess();
@@ -109,10 +113,15 @@ std::string handleProtocolVersion(KataGoEngine&, std::istringstream&) {
 
 std::string handleSetRules(KataGoEngine& engine, std::istringstream& args) {
   std::string rulesStr;
-  args >> rulesStr;
+  std::getline(args, rulesStr);
+  rulesStr = Global::trim(rulesStr);
+  if(rulesStr.empty())
+    return gtpError("missing rules");
   try {
     Rules r = Rules::parseRules(rulesStr);
-    engine.setRules(r);
+    std::string error;
+    if(!engine.setRules(r, error))
+      return gtpError(error);
     return gtpSuccess();
   } catch(const std::exception& e) {
     return gtpError(std::string("unknown rules: ") + e.what());
@@ -183,17 +192,30 @@ std::string dispatch(KataGoEngine& engine, const std::string& commandLine) {
   in >> token;
 
   if(token.empty())
-    return gtpError("empty command");
+    return "? empty command\n\n";
+
+  std::string commandId;
+  if(!token.empty() && std::all_of(token.begin(), token.end(), [](unsigned char c){ return std::isdigit(c) != 0; })) {
+    commandId = token;
+    in >> token;
+    if(token.empty())
+      return "?" + commandId + " missing command\n\n";
+  }
 
   const auto& registry = commandRegistry();
   auto it = registry.find(token);
   if(it == registry.end())
-    return gtpError("unknown command");
+    return "?" + commandId + " unknown command\n\n";
 
   try {
-    return it->second(engine, in);
+    std::string response = it->second(engine, in);
+    if(response.empty() || (response[0] != '=' && response[0] != '?'))
+      response = gtpError("internal response error");
+    return response.substr(0,1) + commandId + response.substr(1) + "\n\n";
   } catch(const std::exception& e) {
-    return gtpError(e.what());
+    return "?" + commandId + " " + e.what() + "\n\n";
+  } catch(...) {
+    return "?" + commandId + " unknown native exception\n\n";
   }
 }
 

@@ -10,7 +10,9 @@ namespace KataGoTelemetry {
 // threads that do not have a KataGoEngine handle. Access goes through these
 // functions so installing or removing a callback is race-free.
 void setCallback(KataGoTelemetryCallback callback) noexcept;
-KataGoTelemetryCallback getCallback() noexcept;
+void setCallbackEx(KataGoTelemetryCallbackEx callback, void* userData) noexcept;
+bool clearCallbackAndWait() noexcept;
+void emit(const char* spanName, int64_t durationUs) noexcept;
 
 }
 
@@ -21,16 +23,9 @@ struct TraceSpan {
   TraceSpan(const char* n) : name(n), start(std::chrono::steady_clock::now()) {}
   
   ~TraceSpan() noexcept {
-    KataGoTelemetryCallback callback = KataGoTelemetry::getCallback();
-    if(callback != nullptr) {
-      auto end = std::chrono::steady_clock::now();
-      int64_t dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-      // Telemetry must never change engine behavior. In particular, a throwing
-      // C++ host callback must not terminate the process from this destructor.
-      try {
-        callback(name, dur);
-      } catch(...) {}
-    }
+    auto end = std::chrono::steady_clock::now();
+    int64_t dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    KataGoTelemetry::emit(name, dur);
   }
 };
 

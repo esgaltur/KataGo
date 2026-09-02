@@ -123,6 +123,7 @@ struct Search {
   Player plaThatSearchIsFor;
   Player plaThatSearchIsForLastSearch;
   int64_t lastSearchNumPlayouts;
+  bool lastSearchUsedAdaptiveExtension;
   double effectiveSearchTimeCarriedOver; //Effective search time carried over from previous moves due to ponder/tree reuse
 
   std::string randSeed;

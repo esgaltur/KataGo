@@ -18,6 +18,7 @@
 #include "main.h"
 
 #include <cstring>
+#include <cstddef>
 #include <new>
 #include <sstream>
 #include <string>
@@ -133,7 +134,51 @@ KATAGO_API KataGoEngine* KATAGO_CALL katago_create_ex(const char* modelFile,
                             humanModelFile ? std::string(humanModelFile) : std::string(),
                             std::string(configFile),
                             numThreads,
-                            numQueryBots);
+                            numQueryBots,
+                            1,
+                            64);
+  } catch(const std::exception& e) {
+    if(outError) *outError = duplicateString(std::string("init failed: ") + e.what());
+    return nullptr;
+  } catch(...) {
+    if(outError) *outError = duplicateString("init failed: unknown native exception");
+    return nullptr;
+  }
+}
+
+KATAGO_API KataGoEngine* KATAGO_CALL katago_create_with_options(
+  const char* modelFile,
+  const char* humanModelFile,
+  const char* configFile,
+  const KataGoCreateOptions* options,
+  const char** outError
+) {
+  if(outError) *outError = nullptr;
+  if(!modelFile || !configFile || !options) {
+    if(outError) *outError = duplicateString("modelFile, configFile, and options must not be NULL");
+    return nullptr;
+  }
+  if(options->structSize < sizeof(KataGoCreateOptions)) {
+    if(outError) *outError = duplicateString("KataGoCreateOptions.structSize is too small");
+    return nullptr;
+  }
+  if(options->numThreads < 0 || options->numQueryBots < 0 ||
+     options->numAsyncWorkers < 0 || options->asyncQueueCapacity < 0) {
+    if(outError) *outError = duplicateString("KataGoCreateOptions values must not be negative");
+    return nullptr;
+  }
+  const int asyncWorkers = options->numAsyncWorkers == 0 ? 1 : options->numAsyncWorkers;
+  const int queueCapacity = options->asyncQueueCapacity == 0 ? 64 : options->asyncQueueCapacity;
+  try {
+    return new KataGoEngine(
+      std::string(modelFile),
+      humanModelFile ? std::string(humanModelFile) : std::string(),
+      std::string(configFile),
+      options->numThreads,
+      options->numQueryBots,
+      asyncWorkers,
+      queueCapacity
+    );
   } catch(const std::exception& e) {
     if(outError) *outError = duplicateString(std::string("init failed: ") + e.what());
     return nullptr;
@@ -176,14 +221,24 @@ KATAGO_API const char* KATAGO_CALL katago_query_json(KataGoEngine* engine, const
   }
 }
 
+KATAGO_API int KATAGO_CALL katago_cancel_query_json(KataGoEngine* engine, const char* queryId) {
+  if(!engine || !queryId || queryId[0] == '\0')
+    return KATAGO_ERR_INVALID_ARG;
+  try {
+    return engine->cancelJsonQuery(queryId) ? KATAGO_SUCCESS : KATAGO_ERR_NOT_FOUND;
+  } catch(...) {
+    return KATAGO_ERR_ENGINE;
+  }
+}
+
 KATAGO_API const char* KATAGO_CALL katago_gtp_command(KataGoEngine* engine, const char* command) {
   if(!engine || !command) return nullptr;
   try {
     return duplicateString(GTPHandler::dispatch(*engine, std::string(command)));
   } catch(const std::exception& e) {
-    return duplicateString(std::string("? ") + e.what());
+    return duplicateString(std::string("? ") + e.what() + "\n\n");
   } catch(...) {
-    return duplicateString("? unknown native exception");
+    return duplicateString("? unknown native exception\n\n");
   }
 }
 
@@ -193,6 +248,19 @@ KATAGO_API const char* KATAGO_CALL katago_version(void) {
 
 KATAGO_API int KATAGO_CALL katago_api_version(void) {
   return KATAGO_API_VERSION;
+}
+
+KATAGO_API int KATAGO_CALL katago_api_version_minor(void) {
+  return KATAGO_API_VERSION_MINOR;
+}
+
+KATAGO_API uint64_t KATAGO_CALL katago_api_capabilities(void) {
+  return KATAGO_CAP_CREATE_OPTIONS |
+         KATAGO_CAP_QUERY_CANCELLATION |
+         KATAGO_CAP_TELEMETRY_CONTEXT |
+         KATAGO_CAP_BOUNDED_ASYNC_QUEUE |
+         KATAGO_CAP_STRICT_HISTORY |
+         KATAGO_CAP_ADAPTIVE_SEARCH;
 }
 
 KATAGO_API int KATAGO_CALL katago_has_human_model(KataGoEngine* engine) {
@@ -226,6 +294,10 @@ KATAGO_API int KATAGO_CALL katago_analyze_async(KataGoEngine* engine,
     int qid = engine->submitAnalysisQuery(std::move(cppCallback));
     if(outQueryId) *outQueryId = qid;
     return KATAGO_SUCCESS;
+  } catch(const KataGoQueueFullError&) {
+    return KATAGO_ERR_QUEUE_FULL;
+  } catch(const KataGoShuttingDownError&) {
+    return KATAGO_ERR_SHUTTING_DOWN;
   } catch(...) {
     return engine->isShuttingDown() ? KATAGO_ERR_SHUTTING_DOWN : KATAGO_ERR_ENGINE;
   }
@@ -279,6 +351,21 @@ KATAGO_API void KATAGO_CALL katago_set_telemetry_callback(KataGoEngine* engine, 
   // functions. Telemetry is process-wide; see the public header for details.
   (void)engine;
   KataGoTelemetry::setCallback(callback);
+}
+
+KATAGO_API int KATAGO_CALL katago_set_telemetry_callback_ex(
+  KataGoEngine* engine,
+  KataGoTelemetryCallbackEx callback,
+  void* userData
+) {
+  (void)engine;
+  KataGoTelemetry::setCallbackEx(callback, userData);
+  return KATAGO_SUCCESS;
+}
+
+KATAGO_API int KATAGO_CALL katago_clear_telemetry_callback_and_wait(KataGoEngine* engine) {
+  (void)engine;
+  return KataGoTelemetry::clearCallbackAndWait() ? KATAGO_SUCCESS : KATAGO_ERR_INVALID_STATE;
 }
 
 } // extern "C"

@@ -81,8 +81,8 @@ fi
 
 export_count="$(nm -D --defined-only "${library}" | awk '{print $3}' | grep -c '^katago_' || true)"
 unexpected_exports="$(nm -D --defined-only "${library}" | awk '{print $3}' | grep -Ev '^(katago_|KATAGO_1$)' || true)"
-if [[ "${export_count}" -ne 20 || -n "${unexpected_exports}" ]]; then
-  echo "ABI export check failed: expected 20 katago_* functions and no implementation symbols." >&2
+if [[ "${export_count}" -ne 26 || -n "${unexpected_exports}" ]]; then
+  echo "ABI export check failed: expected 26 katago_* functions and no implementation symbols." >&2
   nm -D --defined-only "${library}" >&2
   exit 1
 fi
