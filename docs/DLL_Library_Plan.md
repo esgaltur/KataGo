@@ -1,5 +1,14 @@
 # KataGo Shared Library (DLL) — Hardening & Reorganization Plan
 
+Status: **Historical implementation record plus the detailed V3D experiment plan**
+
+The canonical forward roadmap for the general-purpose shared library is
+[`SHARED_LIBRARY_ROADMAP.md`](SHARED_LIBRARY_ROADMAP.md). This document retains
+the completed implementation rounds and the detailed Raspberry Pi/V3D
+measurement protocol. Export counts in completed verification records describe
+the ABI revision tested at that time; the current ABI v1.2 surface has 19
+required base functions and 27 total exported functions.
+
 This document tracks the work to make the KataGo C shared library (`katago.dll` /
 `libkatago.so` / `libkatago.dylib`) more robust, better documented, and better organized. It complements the public API
 header at `cpp/lib/katago_api.h`.
@@ -84,8 +93,8 @@ KATAGO_ERR_TIMEOUT       = -6   // bounded wait expired
 - [x] Write `cpp/lib/README.md`
 - [x] Verify full EIGEN build (BUILD SUCCESSFUL)
 
-> Detailed, evolving working notes live in the session plan
-> (`~/.copilot/session-state/.../plan.md`); this file is the committed, in-repo summary.
+Future shared-library work is tracked in the committed, repository-visible
+[`SHARED_LIBRARY_ROADMAP.md`](SHARED_LIBRARY_ROADMAP.md).
 
 ---
 
@@ -159,8 +168,8 @@ change of side to move; handicap via
 
 # Round 3 — ABI and embedding hardening
 
-This patch set is rebased onto upstream KataGo v1.17.2 commit
-`6a1fc5de9fc253723ac475a0683bf0b9d9b7bd19` and maintained on the
+This patch set includes upstream KataGo v1.18.2 commit
+`fd0723fdbc0e9d82cf269c9630af8c27c57c07c4` and is maintained on the
 `feature/gogame-shared-library-api` branch of
 `https://github.com/esgaltur/KataGo`.
 
@@ -193,13 +202,15 @@ This patch set is rebased onto upstream KataGo v1.17.2 commit
 - Exported surface: 19 `katago_*` C functions and no C++ symbols.
 - Native smoke: normal and Human-SL models, two concurrent one-visit queries,
   structured error cases, and clean shutdown passed on an RTX 3070.
-- GoGame must require C ABI version 1 before creating an engine.
+- Every consumer must require C ABI version 1 before creating an engine.
+  GoGame/TengenGo is one example consumer.
 
 ## Release prerequisite
 
-Record the exact fork commit and native-library SHA-256 in GoGame's release
-metadata. A release binary must be reproducible from the maintained fork rather
-than from an uncommitted sibling checkout.
+Record the exact fork commit and native-library SHA-256 in release metadata.
+A release binary must be reproducible from the maintained fork rather than
+from an uncommitted checkout. Consumer packages, including GoGame/TengenGo,
+should validate those values rather than infer them from a filename.
 
 ---
 
@@ -229,7 +240,8 @@ same property through both APIs.
   output/reference comparisons retain their original failure behavior.
 - The tune-file version and format, candidate space, correctness tolerances,
   FP16 capability probing, and normal inference path do not change. This is not
-  a C ABI change; `KATAGO_API_VERSION` remains 1 and the export list remains 19.
+  a C ABI change; `KATAGO_API_VERSION` remained 1 and the artifact tested in
+  this round retained its then-current 19-function export list.
 
 ## Rejected alternatives
 
@@ -322,8 +334,8 @@ the recommended backend for this Pi/V3D/transformer-model combination.
 ## Objective and baseline
 
 Reduce interactive 9x9 inference latency on Raspberry Pi 5 while preserving
-the ordinary OpenCL path, numerical correctness, API version 1, and the exact
-19-function export surface.
+the ordinary OpenCL path, numerical correctness, API version 1, all 19 required
+base functions, and the current 26-function export surface.
 
 Verified baseline on 2026-08-15:
 
@@ -651,7 +663,8 @@ count. The workload and effective search budget must be identical.
 - Pi Eigen: same-workload end-to-end comparison baseline;
 - Windows RTX 3070 OpenCL: device-timestamp tuner and real-model smoke;
 - 9x9, 13x13, and 19x19 request routing and buffer-size rejection tests;
-- API version 1 and exactly 19 public `katago_*` exports on Windows and Linux;
+- API version 1, all 19 required base functions, exactly 27 current public
+  `katago_*` exports, and no leaked C++ symbols on Windows and Linux;
 - concurrent queries, timeout/abandoned-wait behavior, and bounded destruction;
 - no committed tuning files, model binaries, traces, or generated build trees.
 

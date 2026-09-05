@@ -20,6 +20,7 @@
   - [Features for Developers](#features-for-developers)
       - [GTP Extensions:](#gtp-extensions)
       - [Analysis Engine:](#analysis-engine)
+      - [Shared Library (C API):](#shared-library-c-api)
   - [Compiling KataGo](#compiling-katago)
   - [Source Code Overview:](#source-code-overview)
   - [Selfplay Training:](#selfplay-training)
@@ -253,6 +254,16 @@ KataGo's GTP extensions are documented **[here](docs/GTP_Extensions.md)**.
 KataGo also implements a separate engine that can evaluate much faster due to batching if you want to analyze whole games at once and might be much less of a hassle than GTP if you are working in an environment where JSON parsing is easy. See [here](docs/Analysis_Engine.md) for details.
 
 KataGo also includes example code demonstrating how you can invoke the analysis engine from Python, see [here](python/query_analysis_engine_example.py)!
+
+#### Shared Library (C API):
+
+This branch can also build KataGo as an in-process shared library
+(`katago.dll`, `libkatago.so`, or `libkatago.dylib`). Its stable, flat C API is
+language-neutral and supports stateful GTP commands, stateless concurrent JSON
+analysis, optional Human-SL models, cancellation, bounded asynchronous work,
+and telemetry. See the [shared-library guide](cpp/lib/README.md), the normative
+[public header](cpp/lib/katago_api.h), and the
+[shared-library roadmap](docs/SHARED_LIBRARY_ROADMAP.md).
 
 ## Compiling KataGo
 KataGo is written in C++. It should compile on Linux or OSX via g++ that supports at least C++14, or on Windows via MSVC 15 (2017) and later or MinGW. Instructions may be found at [Compiling KataGo](Compiling.md).

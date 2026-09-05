@@ -37,10 +37,10 @@
 #endif
 
 string Version::getKataGoVersion() {
-  return string("1.17.2");
+  return string("1.18.2");
 }
 string Version::getKataGoVersionForHelp() {
-  return string("KataGo v1.17.2");
+  return string("KataGo v1.18.2");
 }
 string Version::getKataGoVersionFullInfo() {
   ostringstream out;
@@ -243,7 +243,43 @@ KATAGO_API const char* KATAGO_CALL katago_gtp_command(KataGoEngine* engine, cons
 }
 
 KATAGO_API const char* KATAGO_CALL katago_version(void) {
-  return "1.17.2";
+  return "1.18.2";
+}
+
+KATAGO_API const char* KATAGO_CALL katago_build_info_json(void) {
+  try {
+    static const string buildInfo = []() {
+      nlohmann::json j;
+      j["katagoVersion"] = Version::getKataGoVersion();
+      j["sourceRevision"] = Version::getGitRevision();
+      j["upstreamBaseVersion"] = "1.18.2";
+      j["upstreamBaseCommit"] = "fd0723fdbc0e9d82cf269c9630af8c27c57c07c4";
+#if defined(USE_CUDA_BACKEND)
+      j["backend"] = "cuda";
+#elif defined(USE_TENSORRT_BACKEND)
+      j["backend"] = "tensorrt";
+#elif defined(USE_OPENCL_BACKEND)
+      j["backend"] = "opencl";
+#elif defined(USE_EIGEN_BACKEND)
+      j["backend"] = "eigen";
+#else
+      j["backend"] = "dummy";
+#endif
+      j["apiVersion"] = KATAGO_API_VERSION;
+      j["apiVersionMinor"] = KATAGO_API_VERSION_MINOR;
+      j["capabilities"] = KATAGO_CAP_CREATE_OPTIONS |
+                          KATAGO_CAP_QUERY_CANCELLATION |
+                          KATAGO_CAP_TELEMETRY_CONTEXT |
+                          KATAGO_CAP_BOUNDED_ASYNC_QUEUE |
+                          KATAGO_CAP_STRICT_HISTORY |
+                          KATAGO_CAP_ADAPTIVE_SEARCH |
+                          KATAGO_CAP_BUILD_INFO;
+      return j.dump();
+    }();
+    return buildInfo.c_str();
+  } catch(...) {
+    return "{\"error\":\"build manifest unavailable\"}";
+  }
 }
 
 KATAGO_API int KATAGO_CALL katago_api_version(void) {
@@ -260,7 +296,8 @@ KATAGO_API uint64_t KATAGO_CALL katago_api_capabilities(void) {
          KATAGO_CAP_TELEMETRY_CONTEXT |
          KATAGO_CAP_BOUNDED_ASYNC_QUEUE |
          KATAGO_CAP_STRICT_HISTORY |
-         KATAGO_CAP_ADAPTIVE_SEARCH;
+         KATAGO_CAP_ADAPTIVE_SEARCH |
+         KATAGO_CAP_BUILD_INFO;
 }
 
 KATAGO_API int KATAGO_CALL katago_has_human_model(KataGoEngine* engine) {

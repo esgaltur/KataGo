@@ -170,7 +170,6 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
   int threads = (numThreads > 0 ? numThreads : params_.numThreads);
   const int concurrentSearches = numQueryBots + numAsyncWorkers + 1;
   int expectedConcurrentEvals = std::max(threads * concurrentSearches, 4);
-  int defaultMaxBatchSize = std::max(8, ((expectedConcurrentEvals + 3) / 4) * 4);
 
   Rand seedRand;
   nnEval_.reset(Setup::initializeNNEvaluator(
@@ -178,7 +177,7 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
     expectedConcurrentEvals,
     NNPos::MAX_BOARD_LEN,
     NNPos::MAX_BOARD_LEN,
-    defaultMaxBatchSize,
+    Setup::MaxBatchSizeRequest::fromConcurrency(),
     false,
     false,
     Setup::SETUP_FOR_ANALYSIS
@@ -190,7 +189,7 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
       expectedConcurrentEvals,
       NNPos::MAX_BOARD_LEN,
       NNPos::MAX_BOARD_LEN,
-      defaultMaxBatchSize,
+      Setup::MaxBatchSizeRequest::fromConcurrency(),
       false,
       false,
       Setup::SETUP_FOR_ANALYSIS
@@ -209,7 +208,7 @@ KataGoEngine::KataGoEngine(const std::string& modelFile,
   initialPlayer_= P_BLACK;
   history_      = BoardHistory(
     board_, nextPlayer_, rules_, 0,
-    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+    Search::resolveHistoryModes(params_, nnEval_.get())
   );
   history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
 
@@ -313,7 +312,7 @@ void KataGoEngine::setBoardSize(int size) {
   initialPlayer_= P_BLACK;
   history_      = BoardHistory(
     board_, nextPlayer_, rules_, 0,
-    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+    Search::resolveHistoryModes(params_, nnEval_.get())
   );
   history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
   syncBotPosition();
@@ -327,7 +326,7 @@ void KataGoEngine::clearBoard() {
   initialPlayer_= P_BLACK;
   history_      = BoardHistory(
     board_, nextPlayer_, rules_, 0,
-    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+    Search::resolveHistoryModes(params_, nnEval_.get())
   );
   history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
   syncBotPosition();
@@ -357,7 +356,7 @@ bool KataGoEngine::setRules(const Rules& requestedRules, std::string& outError) 
     initialPlayer_,
     rules,
     0,
-    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+    Search::resolveHistoryModes(params_, nnEval_.get())
   );
   replayHistory.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
   Player replayPlayer = initialPlayer_;
@@ -419,7 +418,7 @@ bool KataGoEngine::undoMove() {
   nextPlayer_ = initialPlayer_;
   history_    = BoardHistory(
     board_, nextPlayer_, rules_, 0,
-    Search::resolveAlwaysComputePassAliveUnderSuicideRules(params_, nnEval_.get())
+    Search::resolveHistoryModes(params_, nnEval_.get())
   );
   history_.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
 
@@ -644,7 +643,7 @@ std::string KataGoEngine::queryJson(const std::string& queryJsonStr) {
 
     BoardHistory hist(
       b, pla, r, 0,
-      Search::resolveAlwaysComputePassAliveUnderSuicideRules(params, nnEval_.get())
+      Search::resolveHistoryModes(params, nnEval_.get())
     );
     hist.setAssumeMultipleStartingBlackMovesAreHandicap(assumeMultipleStartingBlackMovesAreHandicap_);
 

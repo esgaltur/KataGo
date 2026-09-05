@@ -56,10 +56,16 @@ int main(int argc, char** argv) {
     KATAGO_CAP_TELEMETRY_CONTEXT |
     KATAGO_CAP_BOUNDED_ASYNC_QUEUE |
     KATAGO_CAP_STRICT_HISTORY |
-    KATAGO_CAP_ADAPTIVE_SEARCH;
-  if(katago_api_version_minor() < 1 ||
+    KATAGO_CAP_ADAPTIVE_SEARCH |
+    KATAGO_CAP_BUILD_INFO;
+  if(katago_api_version_minor() < 2 ||
      (katago_api_capabilities() & expectedCapabilities) != expectedCapabilities) {
     std::cerr << "C ABI capabilities are incomplete" << std::endl;
+    return 3;
+  }
+  const char* buildInfo = katago_build_info_json();
+  if(buildInfo == nullptr || std::strstr(buildInfo, "\"sourceRevision\"") == nullptr) {
+    std::cerr << "C ABI build manifest is unavailable" << std::endl;
     return 3;
   }
 

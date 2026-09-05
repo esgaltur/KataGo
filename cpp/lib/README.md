@@ -6,6 +6,10 @@ with a stable, flat **C API**. The C API lets any language with C FFI
 (C, C++, C#, Python/ctypes, Rust, Go, Java/JNA, etc.) embed a full KataGo
 analysis/GTP engine in-process without shelling out to the executable.
 
+This is a general KataGo embedding API. TengenGo/GoGame is an example consumer,
+not part of the ABI. Future priorities and compatibility policy are tracked in
+the [shared-library roadmap](../../docs/SHARED_LIBRARY_ROADMAP.md).
+
 ## Contents
 
 | File | Layer | Responsibility |
@@ -33,7 +37,9 @@ Only `katago_api.h` is part of the public contract; the other headers are intern
 - **Async analysis** — `katago_analyze_async()` snapshots the current position and
   runs it on a background worker pool, delivering the result via a callback.
 - **Additive, ABI-stable evolution** — new functions and error codes are appended;
-  existing signatures do not change.
+  existing signatures do not change. ABI-v1 consumers require the 19 base
+  functions and discover additive features through a minor version and
+  capability bitset.
 
 ---
 
@@ -90,8 +96,9 @@ KATAGO_DEP_PREFIX=/path/to/prefix/usr \
   bash cpp/build_shared_linux.sh OPENCL
 ```
 
-The helper fails unless the resulting ELF library exports exactly the 20
-documented `katago_*` C functions and no C++ implementation symbols.
+The helper fails unless the resulting ELF library exports exactly the 27
+current `katago_*` C functions and no C++ implementation symbols. Nineteen are
+the required ABI-v1 base surface; eight are additive ABI-v1.2 functions.
 
 ### ARM64 and OpenCL implementations without profiling queues
 
@@ -101,7 +108,7 @@ The verified native form is:
 
 ```bash
 cmake -S cpp -B cpp/build_pi_opencl -G Ninja \
-  -DBUILD_AS_DLL=1 -DBUILD_DLL_SMOKE=1 -DNO_GIT_REVISION=1 \
+  -DBUILD_AS_DLL=1 -DBUILD_DLL_SMOKE=1 \
   -DUSE_BACKEND=OPENCL -DUSE_AVX2=0 -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build_pi_opencl --parallel 2
 ```
@@ -147,7 +154,7 @@ resolution; both legacy and modern profiling queue constructors returned
 | First tune plus smoke | 33:05.54 wall time; 719,216 KiB peak RSS; no swap |
 | Saved-tune warm smoke | 2:05.16 wall time; 280,264 KiB peak RSS; no swap |
 | Eigen comparison | 1.29 seconds wall time; 192,764 KiB peak RSS |
-| ABI/export check | AArch64 ELF; exactly 19 `katago_*@@KATAGO_1` exports |
+| ABI/export check | Historical ABI-v1.0 artifact: AArch64 ELF with exactly 19 `katago_*@@KATAGO_1` exports |
 
 The saved V3D configuration selected the conservative/reference-sized FP32
 parameters; all FP16 modes were rejected. This proves compatibility, but V3D
@@ -190,6 +197,27 @@ two concurrent searches, string ownership, and clean destruction.
 All functions use the `KATAGO_CALL` (`__cdecl` on Windows) calling convention and are
 exported with `KATAGO_API`.
 
+### ABI discovery and optional capabilities
+
+The current library reports ABI v1.2. The original 19 ABI-v1 functions remain
+the required base surface. Eight newer functions are additive, producing 27
+current exports. A base-v1 consumer should load optional symbols dynamically,
+then use `katago_api_version_minor()` and `katago_api_capabilities()` when they
+are available.
+
+| Capability | Meaning |
+| --- | --- |
+| `KATAGO_CAP_CREATE_OPTIONS` | `katago_create_with_options()` and explicit async queue sizing |
+| `KATAGO_CAP_QUERY_CANCELLATION` | `katago_cancel_query_json()` |
+| `KATAGO_CAP_TELEMETRY_CONTEXT` | Contextual telemetry registration and quiescent clearing |
+| `KATAGO_CAP_BOUNDED_ASYNC_QUEUE` | Bounded admission for stateful asynchronous analysis |
+| `KATAGO_CAP_STRICT_HISTORY` | The `strictHistory` JSON query field |
+| `KATAGO_CAP_ADAPTIVE_SEARCH` | Experimental adaptive-search query fields and response metadata |
+| `KATAGO_CAP_BUILD_INFO` | Self-describing source, upstream baseline, backend, and ABI manifest |
+
+The engine release returned by `katago_version()` is not a substitute for
+capability discovery.
+
 ### Error codes (`enum KataGoError`)
 
 | Code | Value | Meaning |
@@ -197,17 +225,21 @@ exported with `KATAGO_API`.
 | `KATAGO_SUCCESS`           | `0`  | Operation succeeded. |
 | `KATAGO_ERR_INVALID_ARG`   | `-1` | A NULL handle or out-of-range/invalid argument. |
 | `KATAGO_ERR_ENGINE`        | `-2` | Internal engine failure. |
-| `KATAGO_ERR_QUEUE_FULL`    | `-3` | Async queue is full (reserved). |
+| `KATAGO_ERR_QUEUE_FULL`    | `-3` | The bounded async queue is full. |
 | `KATAGO_ERR_SHUTTING_DOWN` | `-4` | The engine is being destroyed; async submission rejected. |
 | `KATAGO_ERR_INVALID_STATE` | `-5` | Operation invalid in the current state (e.g. changing worker count after workers started). |
 | `KATAGO_ERR_TIMEOUT`       | `-6` | A bounded wait expired before completing. |
+| `KATAGO_ERR_NOT_FOUND`     | `-7` | The requested query ID is not active. |
 
 ### Lifecycle
 
 | Function | Description |
 |----------|-------------|
 | `int katago_api_version(void)` | C ABI version (`KATAGO_API_VERSION`), independent from the KataGo engine version. |
+| `int katago_api_version_minor(void)` | Additive revision within the ABI major version. Base-v1 consumers must resolve this optional symbol before calling it. |
+| `uint64_t katago_api_capabilities(void)` | Bitset describing supported optional ABI-v1 features. Base-v1 consumers must resolve this optional symbol before calling it. |
 | `KataGoEngine* katago_create_ex(const char* modelFile, const char* humanModelFile, const char* configFile, int numThreads, int numQueryBots, const char** outError)` | Create and initialize an engine. `humanModelFile` may be `NULL`. `numThreads` of `0` uses the config's `numSearchThreads`; `numQueryBots` of `0` uses `numAnalysisThreads` (capped at 64). On failure returns `NULL` and, if `outError` is non-NULL, sets a heap-allocated message (free with `katago_free_string`). |
+| `KataGoEngine* katago_create_with_options(..., const KataGoCreateOptions* options, const char** outError)` | Capability-gated constructor with explicit query concurrency, async workers, and async queue capacity. Zero-initialize the structure and set `structSize`; zero option values select the `katago_create_ex` defaults. |
 | `KataGoEngine* katago_create(const char* modelFile, const char* configFile, int numThreads, const char** outError)` | Shorthand for `katago_create_ex` with no human model and config-derived concurrency. |
 | `void katago_destroy(KataGoEngine* engine)` | Destroy an engine and release all resources. Waits for in-flight async work. `NULL` is a safe no-op. |
 
@@ -225,6 +257,7 @@ one config file valid for both this library and `katago.exe analysis`.
 |----------|---------------------|
 | `const char* katago_analyze(KataGoEngine* engine)` | Analyzes the engine's current position. Returns a JSON string with `rootInfo`, `moveInfos`, and `ownership`. **Free with `katago_free_string`.** `NULL` if `engine` is NULL. |
 | `const char* katago_query_json(KataGoEngine* engine, const char* queryJson)` | Runs a raw KataGo analysis query (see the field table below). Returns the full analysis JSON. **Free with `katago_free_string`.** |
+| `int katago_cancel_query_json(KataGoEngine* engine, const char* queryId)` | Capability-gated cooperative cancellation of an active stateless query. The original query call still owns and must consume its response. |
 
 On internal error these return a valid JSON error object — `{"id":"…","error":"…"}`
 when the request had a parseable `id`, so a caller can fail the one query
@@ -242,6 +275,10 @@ responsible. The message is properly JSON-escaped.
 | `maxVisits` | Per-query search budget. Overrides the config. |
 | `analysisPVLen` | PV length (default: config `analysisPVLen`, else 15) |
 | `includeOwnership`, `includePolicy` | Opt in to the large arrays. Both default **false**. |
+| `strictHistory` | When true, reject wrong-player order and require strict move legality while replaying history. |
+| `adaptiveSearch` | Opt in to the experimental adaptive extension when `KATAGO_CAP_ADAPTIVE_SEARCH` is advertised. |
+| `adaptiveVisitRatio`, `adaptiveUtilityTolerance`, `adaptiveMaxMultiplier`, `adaptiveStepMultiplier` | Validated adaptive-search controls. They have no effect unless adaptive search is enabled. |
+| `whiteHandicapBonus` | Override the rules profile's white-handicap bonus rule. |
 | `overrideSettings` | Any config key, including `humanSLProfile` and the `chosenMove*` knobs |
 
 `overrideSettings` is applied to a *copy* of the engine's config, which is then
@@ -262,7 +299,7 @@ concurrently; further callers queue for a bot.
 
 | Function | Description |
 |----------|-------------|
-| `int katago_analyze_async(KataGoEngine* engine, KataGoAnalysisCallback callback, void* userData, int* outQueryId)` | Snapshots the current position and enqueues it for background analysis. Returns `KATAGO_SUCCESS`, or `KATAGO_ERR_INVALID_ARG` / `KATAGO_ERR_SHUTTING_DOWN` / `KATAGO_ERR_ENGINE`. If `outQueryId` is non-NULL it receives the query ID. |
+| `int katago_analyze_async(KataGoEngine* engine, KataGoAnalysisCallback callback, void* userData, int* outQueryId)` | Snapshots the current position and enqueues it for background analysis. Returns `KATAGO_SUCCESS`, or a documented argument, queue-full, shutdown, or engine error. If `outQueryId` is non-NULL it receives the query ID. |
 | `int katago_pending_query_count(KataGoEngine* engine)` | Number of enqueued + in-flight async queries. `0` if `engine` is NULL. |
 | `void katago_wait_all_queries(KataGoEngine* engine)` | Block until all pending async queries finish. |
 | `int katago_wait_all_queries_timeout(KataGoEngine* engine, int timeoutMs)` | Bounded wait. `KATAGO_SUCCESS` if drained, `KATAGO_ERR_TIMEOUT` on timeout, `KATAGO_ERR_INVALID_ARG` if NULL. Negative `timeoutMs` waits forever. |
@@ -305,18 +342,23 @@ Supported commands: `boardsize`, `clear_board`, `komi`, `play`, `genmove`, `undo
 | Function | Description |
 |----------|-------------|
 | `int katago_api_version(void)` | C ABI version. Consumers should require the version they were compiled against. |
+| `int katago_api_version_minor(void)` | Current additive revision within the ABI major version. Optional for base-v1 consumers. |
+| `uint64_t katago_api_capabilities(void)` | Capability bitset for construction options, cancellation, contextual telemetry, bounded async queues, strict history, and adaptive search. Optional for base-v1 consumers. |
 | `const char* katago_version(void)` | KataGo version string. **Static — do NOT free.** |
+| `const char* katago_build_info_json(void)` | JSON build manifest with exact source and upstream provenance. **Static — do NOT free.** |
 | `int katago_has_human_model(KataGoEngine* engine)` | `1` if a Human-SL model was loaded, else `0` (also `0` for a NULL engine). |
 | `int katago_query_concurrency(KataGoEngine* engine)` | How many `katago_query_json` calls run at once. `0` for a NULL engine. |
 | `void katago_set_telemetry_callback(KataGoEngine* engine, KataGoTelemetryCallback callback)` | Installs or clears the process-wide timing callback. The callback may run concurrently; `engine` is retained for API consistency and may be NULL. |
+| `int katago_set_telemetry_callback_ex(KataGoEngine* engine, KataGoTelemetryCallbackEx callback, void* userData)` | Capability-gated telemetry registration with a borrowed host context. |
+| `int katago_clear_telemetry_callback_and_wait(KataGoEngine* engine)` | Capability-gated quiescent clear; waits for in-flight telemetry callbacks and rejects clearing from within a callback. |
 | `void katago_free_string(const char* str)` | Free any heap-allocated string returned by a `katago_*()` function. |
 
 ---
 
 ## Memory & threading rules
 
-- **Free every returned string** with `katago_free_string()` — except `katago_version()`,
-  which returns a static buffer.
+- **Free every returned string** with `katago_free_string()` — except `katago_version()` and
+  `katago_build_info_json()`, which return static buffers.
 - **One engine, many threads** — every entry point is internally synchronized and safe
   to call concurrently. Whether calls run *in parallel* depends on which one:
   `katago_query_json` is stateless and runs up to `katago_query_concurrency()` searches
@@ -328,10 +370,12 @@ Supported commands: `boardsize`, `clear_board`, `komi`, `play`, `genmove`, `undo
 - **Async callbacks run on worker threads.** Do not call `katago_destroy()` from inside
   a callback, and never let a C++ exception or foreign-language unwind cross the
   callback boundary. Synchronize access to your own data.
-- **Telemetry is process-wide.** Its callback can be invoked concurrently by searches
-  from any engine. Clear it with `katago_set_telemetry_callback(NULL, NULL)` before
-  unloading the code that owns the callback; changing it does not wait for an invocation
-  already in progress.
+- **Telemetry is process-wide.** Its callback can be invoked concurrently by
+  searches from any engine. ABI-v1.1 and newer consumers should use
+  `katago_clear_telemetry_callback_and_wait()` before freeing contextual data
+  or unloading the code that owns the callback. The legacy setter remains
+  available, but replacing it does not wait for an invocation already in
+  progress.
 - **Destruction ordering** — `katago_destroy()` sets the shutting-down flag, wakes and
   joins all workers, then releases the bot, NN evaluator, and logger. After destruction,
   the handle is invalid; do not reuse it.
@@ -421,9 +465,16 @@ void run_async(KataGoEngine* eng) {
 - The public surface is `katago_api.h`. Changes are **additive**: new functions and new
   `KataGoError` values are appended; existing signatures and enum values are stable.
 - Symbols use `__cdecl` on Windows. Windows export annotations, hidden
-  visibility, and the Linux linker version script ensure that only the 19
-  explicit `katago_*` C functions are exported; C++ implementation symbols are
+  visibility, and the Linux linker version script ensure that only the 27
+  current `katago_*` C functions are exported; C++ implementation symbols are
   private.
-- `katago_api_version()` reports the C ABI version. `katago_version()` reports the
-  KataGo release version; these version spaces are intentionally separate.
-- `katago_version()` reports the KataGo release version string.
+- The original 19 functions are the required ABI-v1 base. Eight additional
+  functions form the current additive v1.2 surface. A consumer built for the
+  base ABI must resolve `katago_api_version_minor`,
+  `katago_api_capabilities`, and other optional symbols dynamically before
+  calling them.
+- `katago_api_version()` reports the C ABI major version,
+  `katago_api_version_minor()` reports its additive revision, and
+  `katago_version()` reports the KataGo release version, and
+  `katago_build_info_json()` reports the exact build provenance. These version
+  spaces are intentionally separate.

@@ -49,7 +49,7 @@ typedef struct KataGoEngine KataGoEngine;
  * same major ABI version.
  */
 #define KATAGO_API_VERSION 1
-#define KATAGO_API_VERSION_MINOR 1
+#define KATAGO_API_VERSION_MINOR 2
 
 /* Optional, additive ABI-v1 capabilities returned by katago_api_capabilities(). */
 #define KATAGO_CAP_CREATE_OPTIONS       (UINT64_C(1) << 0)
@@ -58,6 +58,7 @@ typedef struct KataGoEngine KataGoEngine;
 #define KATAGO_CAP_BOUNDED_ASYNC_QUEUE  (UINT64_C(1) << 3)
 #define KATAGO_CAP_STRICT_HISTORY       (UINT64_C(1) << 4)
 #define KATAGO_CAP_ADAPTIVE_SEARCH      (UINT64_C(1) << 5)
+#define KATAGO_CAP_BUILD_INFO           (UINT64_C(1) << 6)
 
 /* ---------- Error codes ---------- */
 enum KataGoError {
@@ -341,6 +342,15 @@ KATAGO_API const char* KATAGO_CALL katago_gtp_command(KataGoEngine* engine, cons
 
 /** Get the KataGo version string (static — do NOT free). Thread-safe. */
 KATAGO_API const char* KATAGO_CALL katago_version(void);
+
+/**
+ * Get a self-describing JSON build manifest (static — do NOT free).
+ *
+ * Fields include the KataGo release, exact fork source revision, upstream
+ * baseline, compiled neural-net backend, ABI revision, and capabilities.
+ * A build made with NO_GIT_REVISION reports "<omitted>" explicitly.
+ */
+KATAGO_API const char* KATAGO_CALL katago_build_info_json(void);
 
 /** Get KATAGO_API_VERSION for runtime compatibility checks. Thread-safe. */
 KATAGO_API int KATAGO_CALL katago_api_version(void);

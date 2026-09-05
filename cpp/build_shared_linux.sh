@@ -47,7 +47,6 @@ cmake_args=(
   -B "${build_dir}"
   -DBUILD_AS_DLL=1
   -DBUILD_DLL_SMOKE=1
-  -DNO_GIT_REVISION=1
   -DUSE_BACKEND="${backend}"
   -DUSE_AVX2="${use_avx2}"
   -DCMAKE_BUILD_TYPE=Release
@@ -81,8 +80,8 @@ fi
 
 export_count="$(nm -D --defined-only "${library}" | awk '{print $3}' | grep -c '^katago_' || true)"
 unexpected_exports="$(nm -D --defined-only "${library}" | awk '{print $3}' | grep -Ev '^(katago_|KATAGO_1$)' || true)"
-if [[ "${export_count}" -ne 26 || -n "${unexpected_exports}" ]]; then
-  echo "ABI export check failed: expected 26 katago_* functions and no implementation symbols." >&2
+if [[ "${export_count}" -ne 27 || -n "${unexpected_exports}" ]]; then
+  echo "ABI export check failed: expected 27 katago_* functions and no implementation symbols." >&2
   nm -D --defined-only "${library}" >&2
   exit 1
 fi
